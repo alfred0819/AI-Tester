@@ -72,7 +72,7 @@ namespace Moba.Combat
             var anyAliveTower = false;
             foreach (var tower in FindObjectsByType<DefenseTower>(FindObjectsSortMode.None))
             {
-                if (tower.Team == _team && tower.IsAlive)
+                if (tower.Team == Team && tower.IsAlive)
                 {
                     anyAliveTower = true;
                     break;
@@ -94,7 +94,7 @@ namespace Moba.Combat
             if (!_stats.IsAlive)
             {
                 _alive.Value = false;
-                var winner = MatchWinRules.WinnerWhenCrystalDestroyed(_team);
+                var winner = MatchWinRules.WinnerWhenCrystalDestroyed(Team);
                 MatchResultController.Instance?.EndMatchServer(winner, _team);
                 OnDestroyedClientRpc();
             }
@@ -115,10 +115,10 @@ namespace Moba.Combat
                 _bodyRenderer.material.color = Color.black;
             }
 
-            Debug.Log($"[Crystal] {_team} crystal destroyed");
+            Debug.Log($"[Crystal] {Team} crystal destroyed");
         }
 
-        private void ApplyColor()
+        private void ApplyColor(TeamId team)
         {
             if (_bodyRenderer == null)
             {
@@ -127,7 +127,7 @@ namespace Moba.Combat
 
             if (_bodyRenderer != null)
             {
-                _bodyRenderer.material.color = _team == TeamId.Blue
+                _bodyRenderer.material.color = team == TeamId.Blue
                     ? new Color(0.4f, 0.7f, 1f)
                     : new Color(1f, 0.5f, 0.4f);
             }
@@ -136,6 +136,10 @@ namespace Moba.Combat
         public void SetTeam(TeamId team)
         {
             _team = team;
+            if (IsServer && IsSpawned)
+            {
+                _netTeam.Value = team;
+            }
         }
     }
 }
