@@ -5,9 +5,9 @@ using Moba.Network;
 
 namespace Moba.Combat
 {
-    /// <summary>Host-authoritative HP, basic attack, shockwave skill, death/respawn.</summary>
+    /// <summary>Host-authoritative hero: HP, attack, skill, gold, death/respawn.</summary>
     [RequireComponent(typeof(NetworkObject))]
-    public sealed class HeroCombat : NetworkBehaviour
+    public sealed class HeroCombat : NetworkBehaviour, ICombatTarget
     {
         [SerializeField] private float _attackRangeOverride = -1f;
         [SerializeField] private Transform _vfxPoint;
@@ -15,34 +15,34 @@ namespace Moba.Combat
         [SerializeField] private TeamId _fixedTeam = TeamId.Red;
 
         private readonly HeroCombatState _state = new();
+        private readonly PlayerWallet _wallet = new(EconomyRules.StartingGold);
+
         private readonly NetworkVariable<float> _health = new(
-            600f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server);
+            600f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<float> _maxHealth = new(
-            600f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server);
+            600f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<bool> _alive = new(
-            true,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server);
+            true, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<float> _respawnLeft = new(
-            0f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server);
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<float> _skillCdLeft = new(
-            0f,
-            NetworkVariableReadPermission.Everyone,
-            NetworkVariableWritePermission.Server);
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _gold = new(
+            0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
         private PlayerAvatar _avatar;
+        private float _passiveGoldAcc;
 
         public float Health => _health.Value;
         public float MaxHealth => _maxHealth.Value;
         public bool IsAlive => _alive.Value;
+        public bool IsAttackable => IsAlive;
         public float RespawnRemaining => _respawnLeft.Value;
         public float SkillCooldownRemaining => _skillCdLeft.Value;
+        public int Gold => _gold.Value;
+        public CombatTargetKind Kind =>
+            _useFixedTeam ? CombatTargetKind.Dummy : CombatTargetKind.Hero;
+        public Vector3 WorldPosition => transform.position;
         public float AttackRange =>
             _attackRangeOverride > 0f ? _attackRangeOverride : _state.Stats.AttackRange;
 
@@ -84,18 +84,62 @@ namespace Moba.Combat
             {
                 PerformRespawn();
             }
+
+            if (_alive.Value && Kind == CombatTargetKind.Hero)
+            {
+                _passiveGoldAcc += Time.deltaTime * EconomyRules.PassiveGoldPerSecond;
+                if (_passiveGoldAcc >= 1f)
+                {
+                    var add = Mathf.FloorToInt(_passiveGoldAcc);
+                    _passiveGoldAcc -= add;
+                    AddGoldServer(add);
+                }
+            }
         }
 
         public bool CanMoveOnServer => IsServer && _state.CanMove;
 
-        public void RequestBasicAttack()
+        public void AddGoldServer(int amount)
         {
-            if (!IsOwner)
+            if (!IsServer || amount <= 0)
             {
                 return;
             }
 
-            BasicAttackServerRpc();
+            _wallet.Add(amount);
+            _gold.Value = _wallet.Gold;
+        }
+
+        public float ReceiveDamage(float power, float ratio, DamageType type, ICombatTarget attacker)
+        {
+            if (!IsServer || !_state.Stats.IsAlive)
+            {
+                return 0f;
+            }
+
+            var dmg = _state.Stats.ApplyDamage(type, power, ratio);
+            PushState();
+            if (_state.IsDead)
+            {
+                _state.MarkDead();
+                PushState();
+                if (attacker is HeroCombat killer && killer.Kind == CombatTargetKind.Hero)
+                {
+                    killer.AddGoldServer(EconomyRules.BountyFor(Kind));
+                }
+
+                DiedClientRpc();
+            }
+
+            return dmg;
+        }
+
+        public void RequestBasicAttack()
+        {
+            if (IsOwner)
+            {
+                BasicAttackServerRpc();
+            }
         }
 
         public void RequestSkill(Vector3 aimWorldDirection)
@@ -121,15 +165,22 @@ namespace Moba.Combat
                 return;
             }
 
-            if (!TryFindNearestEnemy(AttackRange, out var target))
+            if (MatchResultController.Instance != null && MatchResultController.Instance.MatchEnded)
             {
-                // Whiff still consumes cooldown so spam is limited.
                 return;
             }
 
-            var dmg = _state.ResolveBasicAttack(target._state.Stats);
-            target.AfterDamaged();
-            PlayHitClientRpc(target.NetworkObjectId, dmg, false);
+            if (!CombatTargeting.TryFindNearestEnemy(this, AttackRange, out var target))
+            {
+                return;
+            }
+
+            var dmg = target.ReceiveDamage(
+                _state.Stats.Attack,
+                Phase1HeroKit.BasicAttackRatio,
+                DamageType.Physical,
+                this);
+            PlayHitClientRpc(target.NetworkObject.NetworkObjectId, dmg, false);
         }
 
         [ServerRpc]
@@ -143,46 +194,16 @@ namespace Moba.Combat
             _skillCdLeft.Value = _state.SkillCooldownRemaining;
             PlaySkillFxClientRpc(aimDirection);
 
-            var origin = transform.position;
-            foreach (var other in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
+            var power = _state.Stats.AbilityPower > 0f ? _state.Stats.AbilityPower : _state.Stats.Attack;
+            CombatTargeting.ForEachEnemyInRadius(this, Phase1HeroKit.SkillRadius, other =>
             {
-                if (other == null || other == this || !other.IsSpawned)
-                {
-                    continue;
-                }
-
-                if (!TeamRules.AreEnemies(Team, other.Team))
-                {
-                    continue;
-                }
-
-                if (!other._state.Stats.IsAlive)
-                {
-                    continue;
-                }
-
-                var delta = other.transform.position - origin;
-                delta.y = 0f;
-                if (delta.magnitude > Phase1HeroKit.SkillRadius)
-                {
-                    continue;
-                }
-
-                var dmg = _state.ResolveSkillHit(other._state.Stats);
-                other.AfterDamaged();
-                PlayHitClientRpc(other.NetworkObjectId, dmg, true);
-            }
-        }
-
-        private void AfterDamaged()
-        {
-            PushState();
-            if (_state.IsDead)
-            {
-                _state.MarkDead();
-                PushState();
-                DiedClientRpc();
-            }
+                var dmg = other.ReceiveDamage(
+                    power,
+                    Phase1HeroKit.SkillDamageRatio,
+                    DamageType.Magical,
+                    this);
+                PlayHitClientRpc(other.NetworkObject.NetworkObjectId, dmg, true);
+            });
         }
 
         private void PerformRespawn()
@@ -207,42 +228,7 @@ namespace Moba.Combat
             _alive.Value = _state.Stats.IsAlive;
             _respawnLeft.Value = _state.RespawnRemaining;
             _skillCdLeft.Value = _state.SkillCooldownRemaining;
-        }
-
-        private bool TryFindNearestEnemy(float range, out HeroCombat target)
-        {
-            target = null;
-            var best = float.MaxValue;
-            var self = transform.position;
-
-            foreach (var other in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
-            {
-                if (other == null || other == this || !other.IsSpawned)
-                {
-                    continue;
-                }
-
-                if (!TeamRules.AreEnemies(Team, other.Team))
-                {
-                    continue;
-                }
-
-                if (!other._alive.Value)
-                {
-                    continue;
-                }
-
-                var d = Vector3.Distance(
-                    new Vector3(self.x, 0f, self.z),
-                    new Vector3(other.transform.position.x, 0f, other.transform.position.z));
-                if (d < best && TargetingRules.IsInRange(d, range))
-                {
-                    best = d;
-                    target = other;
-                }
-            }
-
-            return target != null;
+            _gold.Value = _wallet.Gold;
         }
 
         [ClientRpc]
@@ -267,34 +253,23 @@ namespace Moba.Combat
             }
 
             Object.Destroy(go, 0.35f);
-            Debug.Log($"[Combat] shockwave aim={aimDirection}");
         }
 
         [ClientRpc]
         private void DiedClientRpc()
         {
-            Debug.Log($"[Combat] {name} died — respawn in {Phase1HeroKit.BaseRespawnSeconds}s");
             SetVisualDead(true);
         }
 
         [ClientRpc]
         private void RespawnedClientRpc()
         {
-            Debug.Log($"[Combat] {name} respawned");
             SetVisualDead(false);
         }
 
         private void SetVisualDead(bool dead)
         {
             transform.localScale = dead ? new Vector3(1f, 0.35f, 1f) : Vector3.one;
-        }
-
-        private void OnDrawGizmosSelected()
-        {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(transform.position, AttackRange);
-            Gizmos.color = Color.cyan;
-            Gizmos.DrawWireSphere(transform.position, Phase1HeroKit.SkillRadius);
         }
     }
 }

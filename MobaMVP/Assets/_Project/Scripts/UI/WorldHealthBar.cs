@@ -1,26 +1,22 @@
 using UnityEngine;
 using UnityEngine.UI;
-using Moba.Combat;
 
 namespace Moba.UI
 {
-    /// <summary>World-space HP bar following a hero.</summary>
+    /// <summary>World-space HP bar for any ICombatTarget.</summary>
     public sealed class WorldHealthBar : MonoBehaviour
     {
-        [SerializeField] private HeroCombat _combat;
+        [SerializeField] private MonoBehaviour _targetBehaviour;
         [SerializeField] private Image _fill;
         [SerializeField] private Vector3 _offset = new(0f, 2.2f, 0f);
         [SerializeField] private Canvas _canvas;
 
+        private Moba.Combat.ICombatTarget _target;
         private Camera _cam;
 
         private void Awake()
         {
-            if (_combat == null)
-            {
-                _combat = GetComponentInParent<HeroCombat>();
-            }
-
+            ResolveTarget();
             _cam = Camera.main;
             if (_canvas != null)
             {
@@ -28,14 +24,30 @@ namespace Moba.UI
             }
         }
 
-        private void LateUpdate()
+        private void ResolveTarget()
         {
-            if (_combat == null)
+            if (_targetBehaviour is Moba.Combat.ICombatTarget t)
             {
+                _target = t;
                 return;
             }
 
-            transform.position = _combat.transform.position + _offset;
+            _target = GetComponentInParent<Moba.Combat.ICombatTarget>();
+        }
+
+        private void LateUpdate()
+        {
+            if (_target == null)
+            {
+                ResolveTarget();
+                if (_target == null)
+                {
+                    return;
+                }
+            }
+
+            var pos = _target.WorldPosition;
+            transform.position = pos + _offset;
             if (_cam == null)
             {
                 _cam = Camera.main;
@@ -46,11 +58,13 @@ namespace Moba.UI
                 transform.rotation = Quaternion.LookRotation(transform.position - _cam.transform.position);
             }
 
-            if (_fill != null && _combat.MaxHealth > 0f)
+            if (_fill != null && _target.MaxHealth > 0f)
             {
-                _fill.fillAmount = Mathf.Clamp01(_combat.Health / _combat.MaxHealth);
-                _fill.color = _combat.IsAlive
-                    ? new Color(0.2f, 0.85f, 0.35f)
+                _fill.fillAmount = Mathf.Clamp01(_target.Health / _target.MaxHealth);
+                _fill.color = _target.IsAlive
+                    ? (_target.IsAttackable
+                        ? new Color(0.2f, 0.85f, 0.35f)
+                        : new Color(0.85f, 0.75f, 0.2f))
                     : new Color(0.5f, 0.5f, 0.5f);
             }
         }

@@ -28,23 +28,36 @@ namespace Moba.EditorTools
         private const string NetworkPrefabsDir = PrefabsDir + "/Network";
         private const string UnitsPrefabsDir = PrefabsDir + "/Units";
 
-        [MenuItem("MobaMVP/Setup Phase 0+1 Scenes And Prefabs")]
+        [MenuItem("MobaMVP/Setup Phase 0+1+2 Scenes And Prefabs")]
         public static void SetupAll()
         {
             EnsureFolders();
             var playerPrefab = CreateOrUpdatePlayerPrefab();
             var dummyPrefab = CreateOrUpdateDummyPrefab();
-            var networkPrefab = CreateOrUpdateNetworkPrefab(playerPrefab, dummyPrefab);
+            var minionPrefab = CreateOrUpdateMinionPrefab();
+            var towerPrefab = CreateOrUpdateTowerPrefab();
+            var crystalPrefab = CreateOrUpdateCrystalPrefab();
+            var networkPrefab = CreateOrUpdateNetworkPrefab(
+                playerPrefab, dummyPrefab, minionPrefab, towerPrefab, crystalPrefab);
             CreateBootScene(networkPrefab);
             CreateLobbyScene(networkPrefab);
-            CreateArenaScene(dummyPrefab);
+            CreateArenaScene(dummyPrefab, minionPrefab, towerPrefab, crystalPrefab);
             ConfigureBuildSettings();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             EditorUtility.DisplayDialog(
-                "MobaMVP Phase 0+1",
-                "Scenes and prefabs ready.\n\n1) Play Boot → Host → Start Match\n2) Optional: second client Join 127.0.0.1\n3) Arena: WASD move, J/LMB attack, K/Q shockwave\n4) Red TrainingDummy is free to hit (solo)\n\nDeath → 5s respawn at fountain.",
+                "MobaMVP Phase 0–2",
+                "Ready.\n\nPlay Boot → Host → Start Match\n" +
+                "WASD / J attack / K skill\n" +
+                "Waves spawn; destroy enemy tower then crystal to win.\n" +
+                "Last-hit minions for gold.",
                 "OK");
+        }
+
+        [MenuItem("MobaMVP/Setup Phase 0+1 Scenes And Prefabs")]
+        public static void SetupPhase01Menu()
+        {
+            SetupAll();
         }
 
         [MenuItem("MobaMVP/Setup Phase 0 Scenes And Prefabs")]
@@ -115,10 +128,60 @@ namespace Moba.EditorTools
 
             var bar = barRoot.AddComponent<WorldHealthBar>();
             var barSo = new SerializedObject(bar);
-            barSo.FindProperty("_combat").objectReferenceValue = owner.GetComponent<HeroCombat>();
+            barSo.FindProperty("_targetBehaviour").objectReferenceValue =
+                owner.GetComponent<HeroCombat>() as MonoBehaviour
+                ?? owner.GetComponent<MinionUnit>() as MonoBehaviour
+                ?? owner.GetComponent<DefenseTower>() as MonoBehaviour
+                ?? owner.GetComponent<NexusCrystal>() as MonoBehaviour;
             barSo.FindProperty("_fill").objectReferenceValue = fill;
             barSo.FindProperty("_canvas").objectReferenceValue = canvas;
             barSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void AttachHealthBar(GameObject owner, Vector3 localOffset)
+        {
+            AttachHealthBar(owner);
+            var bar = owner.transform.Find("HealthBar");
+            if (bar != null)
+            {
+                bar.localPosition = localOffset;
+                var wh = bar.GetComponent<WorldHealthBar>();
+                if (wh != null)
+                {
+                    var so = new SerializedObject(wh);
+                    so.FindProperty("_offset").vector3Value = Vector3.zero;
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
+        }
+
+        private static GameObject CreateOrUpdateDummyPrefab()
+        {
+            var path = UnitsPrefabsDir + "/TrainingDummy.prefab";
+            var capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            capsule.name = "TrainingDummy";
+            Object.DestroyImmediate(capsule.GetComponent<CapsuleCollider>());
+
+            var netObj = capsule.AddComponent<NetworkObject>();
+            netObj.AlwaysReplicateAsRoot = true;
+            capsule.AddComponent<NetworkTransform>();
+
+            var combat = capsule.AddComponent<HeroCombat>();
+            var combatSo = new SerializedObject(combat);
+            combatSo.FindProperty("_useFixedTeam").boolValue = true;
+            combatSo.FindProperty("_fixedTeam").enumValueIndex = (int)TeamId.Red;
+            combatSo.ApplyModifiedPropertiesWithoutUndo();
+
+            var dummy = capsule.AddComponent<TrainingDummy>();
+            var dummySo = new SerializedObject(dummy);
+            dummySo.FindProperty("_bodyRenderer").objectReferenceValue = capsule.GetComponent<Renderer>();
+            dummySo.ApplyModifiedPropertiesWithoutUndo();
+
+            AttachHealthBar(capsule);
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(capsule, path);
+            Object.DestroyImmediate(capsule);
+            return prefab;
         }
 
         private static void StretchFull(RectTransform rt)
@@ -129,7 +192,12 @@ namespace Moba.EditorTools
             rt.offsetMax = Vector2.zero;
         }
 
-        private static GameObject CreateOrUpdateNetworkPrefab(GameObject playerPrefab, GameObject dummyPrefab)
+        private static GameObject CreateOrUpdateNetworkPrefab(
+            GameObject playerPrefab,
+            GameObject dummyPrefab,
+            GameObject minionPrefab,
+            GameObject towerPrefab,
+            GameObject crystalPrefab)
         {
             var path = NetworkPrefabsDir + "/MobaNetworkRoot.prefab";
             var root = new GameObject("MobaNetworkRoot");
@@ -141,10 +209,18 @@ namespace Moba.EditorTools
             nm.NetworkConfig.TickRate = (uint)NetworkDefaults.SimulationTickRate;
             nm.NetworkConfig.ConnectionApproval = true;
 
-            if (dummyPrefab != null)
+            void AddPrefab(GameObject go)
             {
-                nm.NetworkConfig.Prefabs.Add(new NetworkPrefab { Prefab = dummyPrefab });
+                if (go != null)
+                {
+                    nm.NetworkConfig.Prefabs.Add(new NetworkPrefab { Prefab = go });
+                }
             }
+
+            AddPrefab(dummyPrefab);
+            AddPrefab(minionPrefab);
+            AddPrefab(towerPrefab);
+            AddPrefab(crystalPrefab);
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);
@@ -242,11 +318,14 @@ namespace Moba.EditorTools
             EditorSceneManager.SaveScene(scene, ScenesDir + "/Lobby.unity");
         }
 
-        private static void CreateArenaScene(GameObject dummyPrefab)
+        private static void CreateArenaScene(
+            GameObject dummyPrefab,
+            GameObject minionPrefab,
+            GameObject towerPrefab,
+            GameObject crystalPrefab)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
-            // Ground plane greybox lane.
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "LaneGround";
             ground.transform.localScale = new Vector3(4f, 1f, 12f);
@@ -255,27 +334,15 @@ namespace Moba.EditorTools
             CreateSpawnMarker("SpawnPoint_Team0_0", new Vector3(0f, 1f, -40f), new Color(0.2f, 0.45f, 1f));
             CreateSpawnMarker("SpawnPoint_Team1_0", new Vector3(0f, 1f, 40f), new Color(1f, 0.3f, 0.25f));
 
-            var towerBlue = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            towerBlue.name = "Tower_Team0_Tier1";
-            towerBlue.transform.position = new Vector3(0f, 1.5f, -25f);
-            towerBlue.transform.localScale = new Vector3(2f, 1.5f, 2f);
-            towerBlue.GetComponent<Renderer>().sharedMaterial = CreateColorMaterial(new Color(0.2f, 0.45f, 1f));
-
-            var towerRed = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            towerRed.name = "Tower_Team1_Tier1";
-            towerRed.transform.position = new Vector3(0f, 1.5f, 25f);
-            towerRed.transform.localScale = new Vector3(2f, 1.5f, 2f);
-            towerRed.GetComponent<Renderer>().sharedMaterial = CreateColorMaterial(new Color(1f, 0.3f, 0.25f));
-
-            var crystalBlue = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            crystalBlue.name = "Crystal_Team0";
-            crystalBlue.transform.position = new Vector3(0f, 1f, -45f);
-            crystalBlue.GetComponent<Renderer>().sharedMaterial = CreateColorMaterial(new Color(0.4f, 0.7f, 1f));
-
-            var crystalRed = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            crystalRed.name = "Crystal_Team1";
-            crystalRed.transform.position = new Vector3(0f, 1f, 45f);
-            crystalRed.GetComponent<Renderer>().sharedMaterial = CreateColorMaterial(new Color(1f, 0.5f, 0.4f));
+            // Visual placeholders (non-networked) until server spawns real buildings.
+            CreateVisualMarker("TowerMarker_Blue", PrimitiveType.Cylinder, new Vector3(0f, 1.5f, -25f),
+                new Vector3(2f, 1.5f, 2f), new Color(0.2f, 0.45f, 1f, 0.35f));
+            CreateVisualMarker("TowerMarker_Red", PrimitiveType.Cylinder, new Vector3(0f, 1.5f, 25f),
+                new Vector3(2f, 1.5f, 2f), new Color(1f, 0.3f, 0.25f, 0.35f));
+            CreateVisualMarker("CrystalMarker_Blue", PrimitiveType.Cube, new Vector3(0f, 1f, -45f),
+                Vector3.one, new Color(0.4f, 0.7f, 1f, 0.35f));
+            CreateVisualMarker("CrystalMarker_Red", PrimitiveType.Cube, new Vector3(0f, 1f, 45f),
+                Vector3.one, new Color(1f, 0.5f, 0.4f, 0.35f));
 
             var arena = new GameObject("ArenaBootstrap");
             arena.AddComponent<ArenaBootstrap>();
@@ -289,8 +356,27 @@ namespace Moba.EditorTools
             dummySo.FindProperty("_dummyPrefab").objectReferenceValue = dummyPrefab != null
                 ? dummyPrefab.GetComponent<NetworkObject>()
                 : null;
+            dummySo.FindProperty("_spawnOnStart").boolValue = false;
             dummySo.ApplyModifiedPropertiesWithoutUndo();
 
+            var structureGo = new GameObject("ArenaStructureSpawner");
+            var structures = structureGo.AddComponent<ArenaStructureSpawner>();
+            var stSo = new SerializedObject(structures);
+            stSo.FindProperty("_towerPrefab").objectReferenceValue =
+                towerPrefab != null ? towerPrefab.GetComponent<NetworkObject>() : null;
+            stSo.FindProperty("_crystalPrefab").objectReferenceValue =
+                crystalPrefab != null ? crystalPrefab.GetComponent<NetworkObject>() : null;
+            stSo.ApplyModifiedPropertiesWithoutUndo();
+
+            var waveGo = new GameObject("LaneWaveSpawner");
+            var wave = waveGo.AddComponent<LaneWaveSpawner>();
+            var waveSo = new SerializedObject(wave);
+            waveSo.FindProperty("_minionPrefab").objectReferenceValue = minionPrefab != null
+                ? minionPrefab.GetComponent<NetworkObject>()
+                : null;
+            waveSo.ApplyModifiedPropertiesWithoutUndo();
+
+            CreateMatchResultUi();
             CreateCombatHudOverlay();
 
             var cam = Camera.main;
@@ -303,33 +389,114 @@ namespace Moba.EditorTools
             EditorSceneManager.SaveScene(scene, ScenesDir + "/Arena_1Lane.unity");
         }
 
-        private static GameObject CreateOrUpdateDummyPrefab()
+        private static GameObject CreateOrUpdateMinionPrefab()
         {
-            var path = UnitsPrefabsDir + "/TrainingDummy.prefab";
+            var path = UnitsPrefabsDir + "/Minion.prefab";
             var capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            capsule.name = "TrainingDummy";
-            Object.DestroyImmediate(capsule.GetComponent<CapsuleCollider>());
+            capsule.name = "Minion";
+            capsule.transform.localScale = new Vector3(0.7f, 0.7f, 0.7f);
+            Object.DestroyImmediate(capsule.GetComponent<Collider>());
 
             var netObj = capsule.AddComponent<NetworkObject>();
             netObj.AlwaysReplicateAsRoot = true;
             capsule.AddComponent<NetworkTransform>();
 
-            var combat = capsule.AddComponent<HeroCombat>();
-            var combatSo = new SerializedObject(combat);
-            combatSo.FindProperty("_useFixedTeam").boolValue = true;
-            combatSo.FindProperty("_fixedTeam").enumValueIndex = (int)TeamId.Red;
-            combatSo.ApplyModifiedPropertiesWithoutUndo();
-
-            var dummy = capsule.AddComponent<TrainingDummy>();
-            var dummySo = new SerializedObject(dummy);
-            dummySo.FindProperty("_bodyRenderer").objectReferenceValue = capsule.GetComponent<Renderer>();
-            dummySo.ApplyModifiedPropertiesWithoutUndo();
+            var minion = capsule.AddComponent<MinionUnit>();
+            var so = new SerializedObject(minion);
+            so.FindProperty("_bodyRenderer").objectReferenceValue = capsule.GetComponent<Renderer>();
+            so.ApplyModifiedPropertiesWithoutUndo();
 
             AttachHealthBar(capsule);
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(capsule, path);
             Object.DestroyImmediate(capsule);
             return prefab;
+        }
+
+        private static void CreateVisualMarker(
+            string name, PrimitiveType type, Vector3 pos, Vector3 scale, Color color)
+        {
+            var go = GameObject.CreatePrimitive(type);
+            go.name = name;
+            go.transform.position = pos;
+            go.transform.localScale = scale;
+            go.GetComponent<Renderer>().sharedMaterial = CreateColorMaterial(color);
+            var col = go.GetComponent<Collider>();
+            if (col != null)
+            {
+                Object.DestroyImmediate(col);
+            }
+        }
+
+        private static GameObject CreateOrUpdateTowerPrefab()
+        {
+            var path = UnitsPrefabsDir + "/DefenseTower.prefab";
+            var tower = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            tower.name = "DefenseTower";
+            tower.transform.localScale = new Vector3(2f, 1.5f, 2f);
+            Object.DestroyImmediate(tower.GetComponent<Collider>());
+
+            var net = tower.AddComponent<NetworkObject>();
+            net.AlwaysReplicateAsRoot = true;
+            tower.AddComponent<NetworkTransform>();
+            var defense = tower.AddComponent<DefenseTower>();
+            var so = new SerializedObject(defense);
+            so.FindProperty("_bodyRenderer").objectReferenceValue = tower.GetComponent<Renderer>();
+            so.ApplyModifiedPropertiesWithoutUndo();
+            AttachHealthBar(tower, new Vector3(0f, 3.5f, 0f));
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(tower, path);
+            Object.DestroyImmediate(tower);
+            return prefab;
+        }
+
+        private static GameObject CreateOrUpdateCrystalPrefab()
+        {
+            var path = UnitsPrefabsDir + "/NexusCrystal.prefab";
+            var crystal = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            crystal.name = "NexusCrystal";
+            Object.DestroyImmediate(crystal.GetComponent<Collider>());
+
+            var net = crystal.AddComponent<NetworkObject>();
+            net.AlwaysReplicateAsRoot = true;
+            crystal.AddComponent<NetworkTransform>();
+            var nexus = crystal.AddComponent<NexusCrystal>();
+            var so = new SerializedObject(nexus);
+            so.FindProperty("_bodyRenderer").objectReferenceValue = crystal.GetComponent<Renderer>();
+            so.ApplyModifiedPropertiesWithoutUndo();
+            AttachHealthBar(crystal, new Vector3(0f, 2.5f, 0f));
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(crystal, path);
+            Object.DestroyImmediate(crystal);
+            return prefab;
+        }
+
+        private static void CreateMatchResultUi()
+        {
+            var root = new GameObject("MatchResult", typeof(NetworkObject));
+            var controller = root.AddComponent<MatchResultController>();
+
+            var canvasGo = new GameObject("ResultCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            canvasGo.transform.SetParent(root.transform, false);
+            var canvas = canvasGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;
+
+            var panel = CreateUiPanel(canvasGo.transform, "Panel");
+            panel.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.75f);
+            panel.SetActive(false);
+
+            var title = CreateText(panel.transform, "ResultText", "对局结束", 48, TextAnchor.MiddleCenter);
+            SetRect(title.GetComponent<RectTransform>(), 0.1f, 0.45f, 0.9f, 0.7f);
+
+            var back = CreateButton(panel.transform, "BackButton", "返回大厅");
+            SetRect(back.GetComponent<RectTransform>(), 0.35f, 0.25f, 0.65f, 0.38f);
+
+            var so = new SerializedObject(controller);
+            so.FindProperty("_panel").objectReferenceValue = panel;
+            so.FindProperty("_resultText").objectReferenceValue = title;
+            so.FindProperty("_backButton").objectReferenceValue = back;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static void CreateCombatHudOverlay()
