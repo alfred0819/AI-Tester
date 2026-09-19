@@ -12,6 +12,7 @@ using Moba.Bootstrap;
 using Moba.Network;
 using Moba.UI;
 using Moba.Core;
+using Moba.Combat;
 
 namespace Moba.EditorTools
 {
@@ -27,22 +28,29 @@ namespace Moba.EditorTools
         private const string NetworkPrefabsDir = PrefabsDir + "/Network";
         private const string UnitsPrefabsDir = PrefabsDir + "/Units";
 
-        [MenuItem("MobaMVP/Setup Phase 0 Scenes And Prefabs")]
+        [MenuItem("MobaMVP/Setup Phase 0+1 Scenes And Prefabs")]
         public static void SetupAll()
         {
             EnsureFolders();
             var playerPrefab = CreateOrUpdatePlayerPrefab();
-            var networkPrefab = CreateOrUpdateNetworkPrefab(playerPrefab);
+            var dummyPrefab = CreateOrUpdateDummyPrefab();
+            var networkPrefab = CreateOrUpdateNetworkPrefab(playerPrefab, dummyPrefab);
             CreateBootScene(networkPrefab);
             CreateLobbyScene(networkPrefab);
-            CreateArenaScene();
+            CreateArenaScene(dummyPrefab);
             ConfigureBuildSettings();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             EditorUtility.DisplayDialog(
-                "MobaMVP Phase 0",
-                "Scenes and prefabs ready.\n\n1) Open Boot and Press Play\n2) Host in one Editor (or build)\n3) Join 127.0.0.1 from second client\n4) Host clicks Start Match\n\nMove with WASD in Arena.",
+                "MobaMVP Phase 0+1",
+                "Scenes and prefabs ready.\n\n1) Play Boot → Host → Start Match\n2) Optional: second client Join 127.0.0.1\n3) Arena: WASD move, J/LMB attack, K/Q shockwave\n4) Red TrainingDummy is free to hit (solo)\n\nDeath → 5s respawn at fountain.",
                 "OK");
+        }
+
+        [MenuItem("MobaMVP/Setup Phase 0 Scenes And Prefabs")]
+        public static void SetupAllLegacyMenu()
+        {
+            SetupAll();
         }
 
         private static void EnsureFolders()
@@ -70,12 +78,58 @@ namespace Moba.EditorTools
             so.FindProperty("_bodyRenderer").objectReferenceValue = capsule.GetComponent<Renderer>();
             so.ApplyModifiedPropertiesWithoutUndo();
 
+            capsule.AddComponent<HeroCombat>();
+            capsule.AddComponent<PlayerCombatInput>();
+            AttachHealthBar(capsule);
+
             var prefab = PrefabUtility.SaveAsPrefabAsset(capsule, path);
             Object.DestroyImmediate(capsule);
             return prefab;
         }
 
-        private static GameObject CreateOrUpdateNetworkPrefab(GameObject playerPrefab)
+        private static void AttachHealthBar(GameObject owner)
+        {
+            var barRoot = new GameObject("HealthBar", typeof(RectTransform));
+            barRoot.transform.SetParent(owner.transform, false);
+            barRoot.transform.localPosition = new Vector3(0f, 2.2f, 0f);
+
+            var canvas = barRoot.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            var rt = barRoot.GetComponent<RectTransform>();
+            rt.sizeDelta = new Vector2(1.6f, 0.2f);
+            barRoot.transform.localScale = Vector3.one * 0.02f;
+
+            var bg = new GameObject("Bg", typeof(RectTransform), typeof(Image));
+            bg.transform.SetParent(barRoot.transform, false);
+            StretchFull(bg.GetComponent<RectTransform>());
+            bg.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.55f);
+
+            var fillGo = new GameObject("Fill", typeof(RectTransform), typeof(Image));
+            fillGo.transform.SetParent(barRoot.transform, false);
+            StretchFull(fillGo.GetComponent<RectTransform>());
+            var fill = fillGo.GetComponent<Image>();
+            fill.color = new Color(0.2f, 0.85f, 0.35f);
+            fill.type = Image.Type.Filled;
+            fill.fillMethod = Image.FillMethod.Horizontal;
+            fill.fillAmount = 1f;
+
+            var bar = barRoot.AddComponent<WorldHealthBar>();
+            var barSo = new SerializedObject(bar);
+            barSo.FindProperty("_combat").objectReferenceValue = owner.GetComponent<HeroCombat>();
+            barSo.FindProperty("_fill").objectReferenceValue = fill;
+            barSo.FindProperty("_canvas").objectReferenceValue = canvas;
+            barSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void StretchFull(RectTransform rt)
+        {
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+        }
+
+        private static GameObject CreateOrUpdateNetworkPrefab(GameObject playerPrefab, GameObject dummyPrefab)
         {
             var path = NetworkPrefabsDir + "/MobaNetworkRoot.prefab";
             var root = new GameObject("MobaNetworkRoot");
@@ -86,6 +140,11 @@ namespace Moba.EditorTools
             nm.NetworkConfig.PlayerPrefab = playerPrefab;
             nm.NetworkConfig.TickRate = (uint)NetworkDefaults.SimulationTickRate;
             nm.NetworkConfig.ConnectionApproval = true;
+
+            if (dummyPrefab != null)
+            {
+                nm.NetworkConfig.Prefabs.Add(new NetworkPrefab { Prefab = dummyPrefab });
+            }
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);
@@ -183,7 +242,7 @@ namespace Moba.EditorTools
             EditorSceneManager.SaveScene(scene, ScenesDir + "/Lobby.unity");
         }
 
-        private static void CreateArenaScene()
+        private static void CreateArenaScene(GameObject dummyPrefab)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
@@ -224,6 +283,16 @@ namespace Moba.EditorTools
             var spawner = new GameObject("PlayerSpawnPlacer");
             spawner.AddComponent<PlayerSpawnPlacer>();
 
+            var dummySpawnerGo = new GameObject("ArenaDummySpawner");
+            var dummySpawner = dummySpawnerGo.AddComponent<ArenaDummySpawner>();
+            var dummySo = new SerializedObject(dummySpawner);
+            dummySo.FindProperty("_dummyPrefab").objectReferenceValue = dummyPrefab != null
+                ? dummyPrefab.GetComponent<NetworkObject>()
+                : null;
+            dummySo.ApplyModifiedPropertiesWithoutUndo();
+
+            CreateCombatHudOverlay();
+
             var cam = Camera.main;
             if (cam != null)
             {
@@ -232,6 +301,57 @@ namespace Moba.EditorTools
             }
 
             EditorSceneManager.SaveScene(scene, ScenesDir + "/Arena_1Lane.unity");
+        }
+
+        private static GameObject CreateOrUpdateDummyPrefab()
+        {
+            var path = UnitsPrefabsDir + "/TrainingDummy.prefab";
+            var capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            capsule.name = "TrainingDummy";
+            Object.DestroyImmediate(capsule.GetComponent<CapsuleCollider>());
+
+            var netObj = capsule.AddComponent<NetworkObject>();
+            netObj.AlwaysReplicateAsRoot = true;
+            capsule.AddComponent<NetworkTransform>();
+
+            var combat = capsule.AddComponent<HeroCombat>();
+            var combatSo = new SerializedObject(combat);
+            combatSo.FindProperty("_useFixedTeam").boolValue = true;
+            combatSo.FindProperty("_fixedTeam").enumValueIndex = (int)TeamId.Red;
+            combatSo.ApplyModifiedPropertiesWithoutUndo();
+
+            var dummy = capsule.AddComponent<TrainingDummy>();
+            var dummySo = new SerializedObject(dummy);
+            dummySo.FindProperty("_bodyRenderer").objectReferenceValue = capsule.GetComponent<Renderer>();
+            dummySo.ApplyModifiedPropertiesWithoutUndo();
+
+            AttachHealthBar(capsule);
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(capsule, path);
+            Object.DestroyImmediate(capsule);
+            return prefab;
+        }
+
+        private static void CreateCombatHudOverlay()
+        {
+            var canvasGo = new GameObject("CombatHudCanvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            var canvas = canvasGo.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            var scaler = canvasGo.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+
+            var hint = CreateText(canvasGo.transform, "Hint", "J/LMB attack | K/Q skill | WASD move", 28, TextAnchor.LowerCenter);
+            SetRect(hint.GetComponent<RectTransform>(), 0.15f, 0.02f, 0.85f, 0.08f);
+
+            var status = CreateText(canvasGo.transform, "Status", "HP --", 26, TextAnchor.UpperLeft);
+            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.88f, 0.55f, 0.98f);
+
+            var hud = canvasGo.AddComponent<CombatHud>();
+            var hudSo = new SerializedObject(hud);
+            hudSo.FindProperty("_hintText").objectReferenceValue = hint;
+            hudSo.FindProperty("_statusText").objectReferenceValue = status;
+            hudSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static void CreateSpawnMarker(string name, Vector3 pos, Color color)

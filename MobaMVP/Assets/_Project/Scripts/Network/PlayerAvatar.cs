@@ -3,10 +3,11 @@ using UnityEngine.InputSystem;
 using Unity.Netcode;
 using Moba.Core;
 using Moba.Bootstrap;
+using Moba.Combat;
 
 namespace Moba.Network
 {
-    /// <summary>Networked greybox avatar for Phase 0 (capsule + team color + host-authoritative move).</summary>
+    /// <summary>Networked greybox avatar: host-authoritative move, team color.</summary>
     [RequireComponent(typeof(NetworkObject))]
     public sealed class PlayerAvatar : NetworkBehaviour
     {
@@ -18,10 +19,13 @@ namespace Moba.Network
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server);
 
+        private HeroCombat _combat;
+
         public TeamId Team => _team.Value;
 
         public override void OnNetworkSpawn()
         {
+            _combat = GetComponent<HeroCombat>();
             if (IsServer)
             {
                 AssignTeamOnServer();
@@ -44,6 +48,11 @@ namespace Moba.Network
         private void Update()
         {
             if (!IsOwner)
+            {
+                return;
+            }
+
+            if (_combat != null && !_combat.IsAlive)
             {
                 return;
             }
@@ -83,6 +92,11 @@ namespace Moba.Network
         private void SubmitMoveServerRpc(Vector3 direction)
         {
             if (!IsSpawned)
+            {
+                return;
+            }
+
+            if (_combat != null && !_combat.CanMoveOnServer)
             {
                 return;
             }

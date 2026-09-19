@@ -2,9 +2,14 @@ using System;
 
 namespace Moba.Core
 {
+    public enum DamageType : byte
+    {
+        Physical = 0,
+        Magical = 1
+    }
+
     public static class DamageFormula
     {
-        /// <summary>Simple diminishing armor curve used by the MVP.</summary>
         public static float Mitigate(float rawDamage, float resistance)
         {
             if (rawDamage <= 0f)
@@ -29,27 +34,49 @@ namespace Moba.Core
         {
             return Mitigate(abilityPower * skillRatio, magicResist);
         }
+
+        public static float Compute(DamageType type, float power, float ratio, float armor, float magicResist)
+        {
+            return type == DamageType.Magical
+                ? Magical(power, ratio, magicResist)
+                : Physical(power, ratio, armor);
+        }
     }
 
     public sealed class CombatStats
     {
         public float MaxHealth = 600f;
         public float Health = 600f;
-        public float Attack = 50f;
-        public float AbilityPower;
+        public float Attack = 55f;
+        public float AbilityPower = 40f;
         public float Armor = 20f;
         public float MagicResist = 20f;
         public float MoveSpeed = 3.5f;
-        public float AttackRange = 2f;
-        public float AttackInterval = 0.8f;
+        public float AttackRange = 2.5f;
+        public float AttackInterval = 0.75f;
 
         public bool IsAlive => Health > 0f;
 
-        public float ApplyPhysicalDamage(float attack, float ratio)
+        public float ApplyDamage(DamageType type, float power, float ratio)
         {
-            var dmg = DamageFormula.Physical(attack, ratio, Armor);
+            var dmg = DamageFormula.Compute(type, power, ratio, Armor, MagicResist);
             Health = MathF.Max(0f, Health - dmg);
             return dmg;
+        }
+
+        public float ApplyPhysicalDamage(float attack, float ratio)
+        {
+            return ApplyDamage(DamageType.Physical, attack, ratio);
+        }
+
+        public float ApplyMagicalDamage(float abilityPower, float ratio)
+        {
+            return ApplyDamage(DamageType.Magical, abilityPower, ratio);
+        }
+
+        public void FullHeal()
+        {
+            Health = MaxHealth;
         }
     }
 }
