@@ -16,7 +16,7 @@ public class Phase2RulesTests
     [Fact]
     public void Wallet_AddAndSpend()
     {
-        var wallet = new PlayerWallet(EconomyRules.StartingGold);
+        var wallet = new PlayerWallet(0);
         wallet.Add(EconomyRules.GoldPerMinion);
         Assert.Equal(EconomyRules.GoldPerMinion, wallet.Gold);
         Assert.True(wallet.TrySpend(10));

@@ -37,7 +37,7 @@ namespace Moba.Core
 
     public static class EconomyRules
     {
-        public const int StartingGold = 0;
+        public const int StartingGold = 500;
         public const int GoldPerMinion = 18;
         public const int GoldPerTower = 150;
         public const int GoldPerHeroKill = 200;

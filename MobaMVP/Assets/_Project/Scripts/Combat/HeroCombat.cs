@@ -2,10 +2,11 @@ using Unity.Netcode;
 using UnityEngine;
 using Moba.Core;
 using Moba.Network;
+using Moba.Bootstrap;
 
 namespace Moba.Combat
 {
-    /// <summary>Host-authoritative hero: HP, attack, skill, gold, death/respawn.</summary>
+    /// <summary>Host-authoritative hero: kit, skills, gold, items, status, death/respawn.</summary>
     [RequireComponent(typeof(NetworkObject))]
     public sealed class HeroCombat : NetworkBehaviour, ICombatTarget
     {
@@ -25,10 +26,24 @@ namespace Moba.Combat
             true, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<float> _respawnLeft = new(
             0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
-        private readonly NetworkVariable<float> _skillCdLeft = new(
+        private readonly NetworkVariable<float> _skill1Cd = new(
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<float> _skill2Cd = new(
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<float> _skill3Cd = new(
             0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<int> _gold = new(
-            0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+            EconomyRules.StartingGold, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<byte> _heroId = new(
+            (byte)HeroId.PanWei, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<float> _stunLeft = new(
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _item0 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _item1 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _item2 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _item3 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _item4 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _item5 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
         private PlayerAvatar _avatar;
         private float _passiveGoldAcc;
@@ -38,13 +53,19 @@ namespace Moba.Combat
         public bool IsAlive => _alive.Value;
         public bool IsAttackable => IsAlive;
         public float RespawnRemaining => _respawnLeft.Value;
-        public float SkillCooldownRemaining => _skillCdLeft.Value;
+        public float SkillCooldownRemaining => _skill1Cd.Value;
+        public float Skill1Cd => _skill1Cd.Value;
+        public float Skill2Cd => _skill2Cd.Value;
+        public float Skill3Cd => _skill3Cd.Value;
         public int Gold => _gold.Value;
+        public HeroId SelectedHero => (HeroId)_heroId.Value;
+        public bool IsStunned => _stunLeft.Value > 0f;
         public CombatTargetKind Kind =>
             _useFixedTeam ? CombatTargetKind.Dummy : CombatTargetKind.Hero;
         public Vector3 WorldPosition => transform.position;
         public float AttackRange =>
             _attackRangeOverride > 0f ? _attackRangeOverride : _state.Stats.AttackRange;
+        public float EffectiveMoveSpeed => _state.EffectiveMoveSpeed;
 
         public TeamId Team
         {
@@ -62,11 +83,35 @@ namespace Moba.Combat
         public override void OnNetworkSpawn()
         {
             _avatar = GetComponent<PlayerAvatar>();
-            if (IsServer)
+            if (IsServer && Kind == CombatTargetKind.Dummy)
             {
-                _state.Stats.FullHeal();
+                _state.ApplyHero(HeroId.PanWei);
+                _heroId.Value = (byte)HeroId.PanWei;
                 PushState();
             }
+
+            if (IsOwner && Kind == CombatTargetKind.Hero)
+            {
+                var hero = GameSession.Instance != null
+                    ? GameSession.Instance.SelectedHero
+                    : HeroId.PanWei;
+                SelectHeroServerRpc((byte)hero);
+            }
+        }
+
+        [ServerRpc]
+        private void SelectHeroServerRpc(byte heroByte)
+        {
+            var hero = (HeroId)heroByte;
+            if (hero == HeroId.None)
+            {
+                hero = HeroId.PanWei;
+            }
+
+            _state.ApplyHero(hero);
+            _heroId.Value = (byte)_state.HeroId;
+            PushState();
+            Debug.Log($"[Hero] client {OwnerClientId} selected {_state.HeroId}");
         }
 
         private void Update()
@@ -77,7 +122,8 @@ namespace Moba.Combat
             }
 
             _state.Tick(Time.deltaTime);
-            _skillCdLeft.Value = _state.SkillCooldownRemaining;
+            SyncCds();
+            _stunLeft.Value = _state.Status.StunRemaining;
             _respawnLeft.Value = _state.RespawnRemaining;
 
             if (_state.ReadyToRespawn)
@@ -99,6 +145,8 @@ namespace Moba.Combat
 
         public bool CanMoveOnServer => IsServer && _state.CanMove;
 
+        public float GetSkillPower(SkillDefinition skill) => _state.GetSkillPower(skill);
+
         public void AddGoldServer(int amount)
         {
             if (!IsServer || amount <= 0)
@@ -110,6 +158,44 @@ namespace Moba.Combat
             _gold.Value = _wallet.Gold;
         }
 
+        public void ApplySelfSupport(SkillDefinition skill)
+        {
+            if (!IsServer || skill == null)
+            {
+                return;
+            }
+
+            if (skill.ShieldAmount > 0f)
+            {
+                _state.Status.AddShield(skill.ShieldAmount);
+            }
+
+            if (skill.MoveSpeedBuffDuration > 0f)
+            {
+                _state.Status.ApplyHaste(skill.MoveSpeedBuffDuration, skill.MoveSpeedBuffMultiplier);
+            }
+        }
+
+        public void ApplyCrowdControl(float stun, float slowDuration, float slowMul)
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            if (stun > 0f)
+            {
+                _state.Status.ApplyStun(stun);
+            }
+
+            if (slowDuration > 0f)
+            {
+                _state.Status.ApplySlow(slowDuration, slowMul);
+            }
+
+            _stunLeft.Value = _state.Status.StunRemaining;
+        }
+
         public float ReceiveDamage(float power, float ratio, DamageType type, ICombatTarget attacker)
         {
             if (!IsServer || !_state.Stats.IsAlive)
@@ -117,7 +203,9 @@ namespace Moba.Combat
                 return 0f;
             }
 
-            var dmg = _state.Stats.ApplyDamage(type, power, ratio);
+            var raw = DamageFormula.Compute(type, power, ratio, _state.Stats.Armor, _state.Stats.MagicResist);
+            var afterShield = _state.Status.AbsorbDamage(raw);
+            _state.Stats.Health = Mathf.Max(0f, _state.Stats.Health - afterShield);
             PushState();
             if (_state.IsDead)
             {
@@ -131,7 +219,7 @@ namespace Moba.Combat
                 DiedClientRpc();
             }
 
-            return dmg;
+            return afterShield;
         }
 
         public void RequestBasicAttack()
@@ -142,7 +230,7 @@ namespace Moba.Combat
             }
         }
 
-        public void RequestSkill(Vector3 aimWorldDirection)
+        public void RequestSkill(SkillSlot slot, Vector3 aimWorldDirection)
         {
             if (!IsOwner)
             {
@@ -154,7 +242,54 @@ namespace Moba.Combat
                 aimWorldDirection = transform.forward;
             }
 
-            SkillServerRpc(aimWorldDirection.normalized);
+            SkillServerRpc((byte)slot, aimWorldDirection.normalized);
+        }
+
+        /// <summary>Phase1 compat.</summary>
+        public void RequestSkill(Vector3 aimWorldDirection)
+        {
+            RequestSkill(SkillSlot.One, aimWorldDirection);
+        }
+
+        public void RequestBuyItem(ItemId itemId)
+        {
+            if (IsOwner)
+            {
+                BuyItemServerRpc((byte)itemId);
+            }
+        }
+
+        public ItemId GetItemSlot(int index)
+        {
+            return index switch
+            {
+                0 => (ItemId)_item0.Value,
+                1 => (ItemId)_item1.Value,
+                2 => (ItemId)_item2.Value,
+                3 => (ItemId)_item3.Value,
+                4 => (ItemId)_item4.Value,
+                5 => (ItemId)_item5.Value,
+                _ => ItemId.None
+            };
+        }
+
+        [ServerRpc]
+        private void BuyItemServerRpc(byte itemByte)
+        {
+            if (Kind != CombatTargetKind.Hero)
+            {
+                return;
+            }
+
+            if (!_state.TryPurchase((ItemId)itemByte, _wallet, out var error))
+            {
+                Debug.Log($"[Shop] buy failed: {error}");
+                return;
+            }
+
+            PushItems();
+            PushState();
+            Debug.Log($"[Shop] bought {(ItemId)itemByte} gold={_wallet.Gold}");
         }
 
         [ServerRpc]
@@ -184,26 +319,24 @@ namespace Moba.Combat
         }
 
         [ServerRpc]
-        private void SkillServerRpc(Vector3 aimDirection)
+        private void SkillServerRpc(byte slotByte, Vector3 aimDirection)
         {
-            if (!_state.TryStartSkill())
+            var slot = (SkillSlot)slotByte;
+            if (!_state.TryStartSkill(slot))
             {
                 return;
             }
 
-            _skillCdLeft.Value = _state.SkillCooldownRemaining;
-            PlaySkillFxClientRpc(aimDirection);
-
-            var power = _state.Stats.AbilityPower > 0f ? _state.Stats.AbilityPower : _state.Stats.Attack;
-            CombatTargeting.ForEachEnemyInRadius(this, Phase1HeroKit.SkillRadius, other =>
+            if (MatchResultController.Instance != null && MatchResultController.Instance.MatchEnded)
             {
-                var dmg = other.ReceiveDamage(
-                    power,
-                    Phase1HeroKit.SkillDamageRatio,
-                    DamageType.Magical,
-                    this);
-                PlayHitClientRpc(other.NetworkObject.NetworkObjectId, dmg, true);
-            });
+                return;
+            }
+
+            SyncCds();
+            var skill = HeroCatalog.Get(_state.HeroId).GetSkill(slot);
+            PlaySkillFxClientRpc(slotByte, aimDirection, skill != null ? skill.Radius : 3f);
+            SkillResolver.Execute(this, skill, aimDirection);
+            PushState();
         }
 
         private void PerformRespawn()
@@ -221,14 +354,34 @@ namespace Moba.Combat
             RespawnedClientRpc();
         }
 
+        private void SyncCds()
+        {
+            _skill1Cd.Value = _state.Skill1CooldownRemaining;
+            _skill2Cd.Value = _state.Skill2CooldownRemaining;
+            _skill3Cd.Value = _state.Skill3CooldownRemaining;
+        }
+
+        private void PushItems()
+        {
+            _item0.Value = (int)_state.Equipment.GetSlot(0);
+            _item1.Value = (int)_state.Equipment.GetSlot(1);
+            _item2.Value = (int)_state.Equipment.GetSlot(2);
+            _item3.Value = (int)_state.Equipment.GetSlot(3);
+            _item4.Value = (int)_state.Equipment.GetSlot(4);
+            _item5.Value = (int)_state.Equipment.GetSlot(5);
+        }
+
         private void PushState()
         {
             _health.Value = _state.Stats.Health;
             _maxHealth.Value = _state.Stats.MaxHealth;
             _alive.Value = _state.Stats.IsAlive;
             _respawnLeft.Value = _state.RespawnRemaining;
-            _skillCdLeft.Value = _state.SkillCooldownRemaining;
+            SyncCds();
             _gold.Value = _wallet.Gold;
+            _stunLeft.Value = _state.Status.StunRemaining;
+            _heroId.Value = (byte)_state.HeroId;
+            PushItems();
         }
 
         [ClientRpc]
@@ -238,34 +391,33 @@ namespace Moba.Combat
         }
 
         [ClientRpc]
-        private void PlaySkillFxClientRpc(Vector3 aimDirection)
+        private void PlaySkillFxClientRpc(byte slot, Vector3 aimDirection, float radius)
         {
             var center = _vfxPoint != null ? _vfxPoint.position : transform.position;
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            go.name = "ShockwaveFx";
+            go.name = $"SkillFx_{slot}";
             Object.Destroy(go.GetComponent<Collider>());
-            go.transform.position = center;
-            go.transform.localScale = Vector3.one * (Phase1HeroKit.SkillRadius * 2f);
+            go.transform.position = center + aimDirection.normalized * 0.5f;
+            go.transform.localScale = Vector3.one * Mathf.Max(1f, radius * 2f);
             var r = go.GetComponent<Renderer>();
             if (r != null)
             {
-                r.material.color = new Color(0.4f, 0.8f, 1f, 0.35f);
+                r.material.color = slot switch
+                {
+                    2 => new Color(0.4f, 1f, 0.5f, 0.35f),
+                    3 => new Color(1f, 0.5f, 0.2f, 0.35f),
+                    _ => new Color(0.4f, 0.8f, 1f, 0.35f)
+                };
             }
 
             Object.Destroy(go, 0.35f);
         }
 
         [ClientRpc]
-        private void DiedClientRpc()
-        {
-            SetVisualDead(true);
-        }
+        private void DiedClientRpc() => SetVisualDead(true);
 
         [ClientRpc]
-        private void RespawnedClientRpc()
-        {
-            SetVisualDead(false);
-        }
+        private void RespawnedClientRpc() => SetVisualDead(false);
 
         private void SetVisualDead(bool dead)
         {

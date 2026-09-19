@@ -11,11 +11,18 @@ namespace Moba.Bootstrap
         [SerializeField] private GameModeKind _mode = GameModeKind.OneVsOne;
         [SerializeField] private string _joinAddress = NetworkDefaults.DefaultAddress;
         [SerializeField] private ushort _port = NetworkDefaults.DefaultPort;
+        [SerializeField] private HeroId _selectedHero = HeroId.PanWei;
 
         public GameModeKind Mode
         {
             get => _mode;
             set => _mode = value;
+        }
+
+        public HeroId SelectedHero
+        {
+            get => _selectedHero == HeroId.None ? HeroId.PanWei : _selectedHero;
+            set => _selectedHero = value == HeroId.None ? HeroId.PanWei : value;
         }
 
         public string JoinAddress

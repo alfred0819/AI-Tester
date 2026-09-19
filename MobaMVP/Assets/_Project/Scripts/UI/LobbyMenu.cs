@@ -12,6 +12,7 @@ namespace Moba.UI
         [SerializeField] private InputField _addressField;
         [SerializeField] private InputField _portField;
         [SerializeField] private Dropdown _modeDropdown;
+        [SerializeField] private Dropdown _heroDropdown;
         [SerializeField] private Text _statusText;
         [SerializeField] private Button _hostButton;
         [SerializeField] private Button _joinButton;
@@ -30,6 +31,7 @@ namespace Moba.UI
             if (_startMatchButton != null) _startMatchButton.onClick.AddListener(OnStartMatch);
             if (_disconnectButton != null) _disconnectButton.onClick.AddListener(OnDisconnect);
             if (_modeDropdown != null) _modeDropdown.onValueChanged.AddListener(OnModeChanged);
+            if (_heroDropdown != null) _heroDropdown.onValueChanged.AddListener(OnHeroChanged);
 
             var net = MobaNetworkController.Instance;
             if (net != null)
@@ -48,6 +50,7 @@ namespace Moba.UI
             if (_startMatchButton != null) _startMatchButton.onClick.RemoveListener(OnStartMatch);
             if (_disconnectButton != null) _disconnectButton.onClick.RemoveListener(OnDisconnect);
             if (_modeDropdown != null) _modeDropdown.onValueChanged.RemoveListener(OnModeChanged);
+            if (_heroDropdown != null) _heroDropdown.onValueChanged.RemoveListener(OnHeroChanged);
 
             var net = MobaNetworkController.Instance;
             if (net != null)
@@ -89,6 +92,29 @@ namespace Moba.UI
             {
                 _modeDropdown.value = session.Mode == GameModeKind.ThreeVsThree ? 1 : 0;
             }
+
+            if (_heroDropdown != null)
+            {
+                EnsureHeroOptions();
+                _heroDropdown.value = session.SelectedHero switch
+                {
+                    HeroId.YingXi => 1,
+                    HeroId.JinFa => 2,
+                    HeroId.ChuanYun => 3,
+                    _ => 0
+                };
+            }
+        }
+
+        private void EnsureHeroOptions()
+        {
+            if (_heroDropdown == null || _heroDropdown.options.Count >= 4)
+            {
+                return;
+            }
+
+            _heroDropdown.ClearOptions();
+            _heroDropdown.AddOptions(new System.Collections.Generic.List<string>(HeroCatalog.DisplayNames()));
         }
 
         private void ApplyUiToSession()
@@ -115,12 +141,23 @@ namespace Moba.UI
                     ? GameModeKind.ThreeVsThree
                     : GameModeKind.OneVsOne;
             }
+
+            if (_heroDropdown != null)
+            {
+                session.SelectedHero = HeroCatalog.FromDropdownIndex(_heroDropdown.value);
+            }
         }
 
         private void OnModeChanged(int _)
         {
             ApplyUiToSession();
             SetStatus($"Mode: {GameSession.Instance.Mode} (max {GameSession.Instance.MaxPlayers})");
+        }
+
+        private void OnHeroChanged(int _)
+        {
+            ApplyUiToSession();
+            SetStatus($"英雄: {HeroCatalog.Get(GameSession.Instance.SelectedHero).DisplayName}");
         }
 
         private void OnHost()

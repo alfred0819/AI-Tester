@@ -28,7 +28,7 @@ namespace Moba.EditorTools
         private const string NetworkPrefabsDir = PrefabsDir + "/Network";
         private const string UnitsPrefabsDir = PrefabsDir + "/Units";
 
-        [MenuItem("MobaMVP/Setup Phase 0+1+2 Scenes And Prefabs")]
+        [MenuItem("MobaMVP/Setup Phase 0–3 Scenes And Prefabs")]
         public static void SetupAll()
         {
             EnsureFolders();
@@ -46,12 +46,17 @@ namespace Moba.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             EditorUtility.DisplayDialog(
-                "MobaMVP Phase 0–2",
-                "Ready.\n\nPlay Boot → Host → Start Match\n" +
-                "WASD / J attack / K skill\n" +
-                "Waves spawn; destroy enemy tower then crystal to win.\n" +
-                "Last-hit minions for gold.",
+                "MobaMVP Phase 0–3",
+                "Ready.\n\nLobby: pick hero (磐卫/影袭/烬法/穿云)\n" +
+                "Arena: J attack | Q/R/E skills | B shop\n" +
+                "Push tower → crystal to win. Starting gold 500.",
                 "OK");
+        }
+
+        [MenuItem("MobaMVP/Setup Phase 0+1+2 Scenes And Prefabs")]
+        public static void SetupPhase012Menu()
+        {
+            SetupAll();
         }
 
         [MenuItem("MobaMVP/Setup Phase 0+1 Scenes And Prefabs")]
@@ -265,20 +270,24 @@ namespace Moba.EditorTools
             SetRect(title.GetComponent<RectTransform>(), 0.1f, 0.82f, 0.9f, 0.95f);
 
             var address = CreateInput(panel, "Address", NetworkDefaults.DefaultAddress);
-            SetRect(address.GetComponent<RectTransform>(), 0.3f, 0.68f, 0.7f, 0.76f);
-            CreateText(panel, "AddressLabel", "Host IP", 20, TextAnchor.MiddleRight)
-                .GetComponent<RectTransform>();
-            SetRect(panel.Find("AddressLabel").GetComponent<RectTransform>(), 0.08f, 0.68f, 0.28f, 0.76f);
+            SetRect(address.GetComponent<RectTransform>(), 0.3f, 0.72f, 0.7f, 0.78f);
+            CreateText(panel, "AddressLabel", "Host IP", 20, TextAnchor.MiddleRight);
+            SetRect(panel.Find("AddressLabel").GetComponent<RectTransform>(), 0.08f, 0.72f, 0.28f, 0.78f);
 
             var port = CreateInput(panel, "Port", NetworkDefaults.DefaultPort.ToString());
-            SetRect(port.GetComponent<RectTransform>(), 0.3f, 0.58f, 0.7f, 0.66f);
+            SetRect(port.GetComponent<RectTransform>(), 0.3f, 0.64f, 0.7f, 0.70f);
             CreateText(panel, "PortLabel", "Port", 20, TextAnchor.MiddleRight);
-            SetRect(panel.Find("PortLabel").GetComponent<RectTransform>(), 0.08f, 0.58f, 0.28f, 0.66f);
+            SetRect(panel.Find("PortLabel").GetComponent<RectTransform>(), 0.08f, 0.64f, 0.28f, 0.70f);
 
             var mode = CreateModeDropdown(panel);
-            SetRect(mode.GetComponent<RectTransform>(), 0.3f, 0.48f, 0.7f, 0.56f);
+            SetRect(mode.GetComponent<RectTransform>(), 0.3f, 0.56f, 0.7f, 0.62f);
             CreateText(panel, "ModeLabel", "Mode", 20, TextAnchor.MiddleRight);
-            SetRect(panel.Find("ModeLabel").GetComponent<RectTransform>(), 0.08f, 0.48f, 0.28f, 0.56f);
+            SetRect(panel.Find("ModeLabel").GetComponent<RectTransform>(), 0.08f, 0.56f, 0.28f, 0.62f);
+
+            var hero = CreateHeroDropdown(panel);
+            SetRect(hero.GetComponent<RectTransform>(), 0.3f, 0.48f, 0.7f, 0.54f);
+            CreateText(panel, "HeroLabel", "Hero", 20, TextAnchor.MiddleRight);
+            SetRect(panel.Find("HeroLabel").GetComponent<RectTransform>(), 0.08f, 0.48f, 0.28f, 0.54f);
 
             var hostBtn = CreateButton(panel, "HostButton", "Host");
             SetRect(hostBtn.GetComponent<RectTransform>(), 0.2f, 0.34f, 0.48f, 0.44f);
@@ -297,6 +306,7 @@ namespace Moba.EditorTools
             menuSo.FindProperty("_addressField").objectReferenceValue = address;
             menuSo.FindProperty("_portField").objectReferenceValue = port;
             menuSo.FindProperty("_modeDropdown").objectReferenceValue = mode;
+            menuSo.FindProperty("_heroDropdown").objectReferenceValue = hero;
             menuSo.FindProperty("_statusText").objectReferenceValue = status;
             menuSo.FindProperty("_hostButton").objectReferenceValue = hostBtn;
             menuSo.FindProperty("_joinButton").objectReferenceValue = joinBtn;
@@ -508,17 +518,91 @@ namespace Moba.EditorTools
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
 
-            var hint = CreateText(canvasGo.transform, "Hint", "J/LMB attack | K/Q skill | WASD move", 28, TextAnchor.LowerCenter);
-            SetRect(hint.GetComponent<RectTransform>(), 0.15f, 0.02f, 0.85f, 0.08f);
+            var hint = CreateText(canvasGo.transform, "Hint",
+                "J attack | Q/R/E skills | B shop | WASD", 26, TextAnchor.LowerCenter);
+            SetRect(hint.GetComponent<RectTransform>(), 0.1f, 0.02f, 0.9f, 0.08f);
 
-            var status = CreateText(canvasGo.transform, "Status", "HP --", 26, TextAnchor.UpperLeft);
-            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.88f, 0.55f, 0.98f);
+            var status = CreateText(canvasGo.transform, "Status", "HP --", 24, TextAnchor.UpperLeft);
+            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.88f, 0.7f, 0.98f);
 
             var hud = canvasGo.AddComponent<CombatHud>();
             var hudSo = new SerializedObject(hud);
             hudSo.FindProperty("_hintText").objectReferenceValue = hint;
             hudSo.FindProperty("_statusText").objectReferenceValue = status;
             hudSo.ApplyModifiedPropertiesWithoutUndo();
+
+            CreateShopOverlay(canvasGo.transform);
+        }
+
+        private static void CreateShopOverlay(Transform canvas)
+        {
+            var root = CreateUiPanel(canvas, "ShopRoot");
+            root.GetComponent<Image>().color = new Color(0.06f, 0.08f, 0.1f, 0.92f);
+            var rootRt = root.GetComponent<RectTransform>();
+            rootRt.anchorMin = new Vector2(0.62f, 0.2f);
+            rootRt.anchorMax = new Vector2(0.98f, 0.85f);
+            rootRt.offsetMin = Vector2.zero;
+            rootRt.offsetMax = Vector2.zero;
+            root.SetActive(false);
+
+            var title = CreateText(root.transform, "ShopTitle", "装备商店", 28, TextAnchor.UpperCenter);
+            SetRect(title.GetComponent<RectTransform>(), 0.05f, 0.88f, 0.95f, 0.98f);
+
+            var status = CreateText(root.transform, "ShopStatus", "金币", 20, TextAnchor.MiddleCenter);
+            SetRect(status.GetComponent<RectTransform>(), 0.05f, 0.78f, 0.95f, 0.88f);
+
+            var buttons = new Button[ItemCatalog.All.Length];
+            var labels = new Text[ItemCatalog.All.Length];
+            for (var i = 0; i < ItemCatalog.All.Length; i++)
+            {
+                var yMax = 0.74f - i * 0.11f;
+                var yMin = yMax - 0.09f;
+                var btn = CreateButton(root.transform, $"Buy_{i}", ItemCatalog.All[i].DisplayName);
+                SetRect(btn.GetComponent<RectTransform>(), 0.08f, yMin, 0.92f, yMax);
+                buttons[i] = btn;
+                labels[i] = btn.GetComponentInChildren<Text>();
+                if (labels[i] != null)
+                {
+                    labels[i].text = $"{ItemCatalog.All[i].DisplayName}  {ItemCatalog.All[i].Cost}金";
+                    labels[i].fontSize = 20;
+                }
+            }
+
+            var shop = canvas.gameObject.AddComponent<ShopPanel>();
+            var so = new SerializedObject(shop);
+            so.FindProperty("_root").objectReferenceValue = root;
+            so.FindProperty("_titleText").objectReferenceValue = title;
+            so.FindProperty("_statusText").objectReferenceValue = status;
+            var buyProp = so.FindProperty("_buyButtons");
+            buyProp.arraySize = buttons.Length;
+            for (var i = 0; i < buttons.Length; i++)
+            {
+                buyProp.GetArrayElementAtIndex(i).objectReferenceValue = buttons[i];
+            }
+
+            var labelProp = so.FindProperty("_itemLabels");
+            labelProp.arraySize = labels.Length;
+            for (var i = 0; i < labels.Length; i++)
+            {
+                labelProp.GetArrayElementAtIndex(i).objectReferenceValue = labels[i];
+            }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static Dropdown CreateHeroDropdown(Transform parent)
+        {
+            var dropdown = CreateModeDropdown(parent);
+            dropdown.gameObject.name = "HeroDropdown";
+            dropdown.options.Clear();
+            foreach (var name in HeroCatalog.DisplayNames())
+            {
+                dropdown.options.Add(new Dropdown.OptionData(name));
+            }
+
+            dropdown.value = 0;
+            dropdown.RefreshShownValue();
+            return dropdown;
         }
 
         private static void CreateSpawnMarker(string name, Vector3 pos, Color color)

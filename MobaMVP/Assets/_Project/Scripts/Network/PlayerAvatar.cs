@@ -107,7 +107,12 @@ namespace Moba.Network
                 MoveY = direction.z
             }.ClampedMove();
 
-            var speed = _moveSpeed;
+            var speed = _combat != null ? _combat.EffectiveMoveSpeed : _moveSpeed;
+            if (speed <= 0.01f)
+            {
+                return;
+            }
+
             transform.position += new Vector3(cmd.MoveX, 0f, cmd.MoveY) * speed * Time.deltaTime;
 
             if (cmd.MoveX * cmd.MoveX + cmd.MoveY * cmd.MoveY > 0.0001f)

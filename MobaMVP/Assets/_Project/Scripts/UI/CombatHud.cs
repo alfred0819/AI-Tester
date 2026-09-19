@@ -5,7 +5,7 @@ using Moba.Core;
 
 namespace Moba.UI
 {
-    /// <summary>Owner-only combat HUD: prompts, HP, gold, skill CD.</summary>
+    /// <summary>Owner-only combat HUD: HP, gold, skill CDs, hero name.</summary>
     public sealed class CombatHud : MonoBehaviour
     {
         [SerializeField] private Text _hintText;
@@ -27,19 +27,19 @@ namespace Moba.UI
 
             if (_hintText != null)
             {
-                _hintText.text = "J/LMB 普攻 | K/Q 技能 | WASD 移动 | 先拆塔再打水晶";
+                _hintText.text = "J普攻 | Q/1 技能1 | R/2 技能2 | E/3 技能3 | B商店 | WASD移动";
             }
 
             if (_statusText != null)
             {
+                var hero = HeroCatalog.Get(_localCombat.SelectedHero).DisplayName;
                 var hp = $"{_localCombat.Health:0}/{_localCombat.MaxHealth:0}";
-                var cd = _localCombat.SkillCooldownRemaining > 0f
-                    ? $"技能CD {_localCombat.SkillCooldownRemaining:0.0}s"
-                    : "技能就绪";
+                var cds =
+                    $"Q{_localCombat.Skill1Cd:0.0} R{_localCombat.Skill2Cd:0.0} E{_localCombat.Skill3Cd:0.0}";
                 var life = _localCombat.IsAlive
-                    ? "存活"
+                    ? (_localCombat.IsStunned ? "眩晕" : "存活")
                     : $"复活 {_localCombat.RespawnRemaining:0.0}s";
-                _statusText.text = $"HP {hp}  金 {_localCombat.Gold}  {cd}  {life}";
+                _statusText.text = $"{hero}  HP {hp}  金{_localCombat.Gold}  {cds}  {life}";
             }
         }
 
