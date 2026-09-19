@@ -661,9 +661,12 @@ namespace Moba.Combat
                 _networkTransform = GetComponent<NetworkTransform>();
             }
 
+            // Always teleport at living scale so death squash is not baked into NT state.
+            var scale = Vector3.one;
+            transform.localScale = scale;
             if (_networkTransform != null)
             {
-                _networkTransform.Teleport(position, transform.rotation, transform.localScale);
+                _networkTransform.Teleport(position, transform.rotation, scale);
             }
             else
             {

@@ -50,14 +50,11 @@ namespace Moba.Network
         {
             if (IsOwner)
             {
-                if (_combat != null && !_combat.IsAlive)
-                {
-                    _serverMoveInput = Vector3.zero;
-                }
-                else
-                {
-                    SubmitMoveServerRpc(ReadMoveInput());
-                }
+                // Always push input (including zero while dead) so the server clears stale direction.
+                var move = _combat != null && !_combat.IsAlive
+                    ? Vector3.zero
+                    : ReadMoveInput();
+                SubmitMoveServerRpc(move);
             }
 
             if (!IsServer)
