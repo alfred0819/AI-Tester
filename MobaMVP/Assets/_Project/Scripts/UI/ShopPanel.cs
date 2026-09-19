@@ -126,6 +126,7 @@ namespace Moba.UI
             }
 
             _local.RequestBuyItem(ItemCatalog.All[index].Id);
+            Moba.Feedback.MobaAudio.Instance?.PlayUi();
         }
     }
 }

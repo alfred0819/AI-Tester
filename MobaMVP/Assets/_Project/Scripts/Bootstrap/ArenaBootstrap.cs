@@ -3,7 +3,7 @@ using Moba.Core;
 
 namespace Moba.Bootstrap
 {
-    /// <summary>Arena entry: camera framing for greybox lane.</summary>
+    /// <summary>Arena entry: initial framing + soft local-player camera follow.</summary>
     public sealed class ArenaBootstrap : MonoBehaviour
     {
         [SerializeField] private Transform _cameraPivot;
@@ -13,15 +13,19 @@ namespace Moba.Bootstrap
         private void Start()
         {
             var cam = Camera.main;
-            if (cam == null)
+            if (cam != null)
             {
-                return;
+                var pivot = _cameraPivot != null ? _cameraPivot.position : _lookAt;
+                cam.transform.position = pivot + _cameraOffset;
+                cam.transform.LookAt(pivot);
+                cam.orthographic = false;
             }
 
-            var pivot = _cameraPivot != null ? _cameraPivot.position : _lookAt;
-            cam.transform.position = pivot + _cameraOffset;
-            cam.transform.LookAt(pivot);
-            cam.orthographic = false;
+            if (GetComponent<ArenaCameraFollow>() == null)
+            {
+                gameObject.AddComponent<ArenaCameraFollow>();
+            }
+
             Debug.Log($"[Arena] Ready mode={GameSession.Instance?.Mode} scene={SceneNames.Arena1Lane}");
         }
     }

@@ -11,28 +11,29 @@ namespace Moba.Core
 
     public static class LaneWaveRules
     {
-        public const float WaveIntervalSeconds = 25f;
-        public const float FirstWaveDelaySeconds = 5f;
+        public const float WaveIntervalSeconds = 22f;
+        public const float FirstWaveDelaySeconds = 4f;
         public const int MeleePerWave = 3;
-        public const float MinionMaxHealth = 280f;
-        public const float MinionAttack = 18f;
+        public const float MinionMaxHealth = 260f;
+        public const float MinionAttack = 22f;
         public const float MinionArmor = 5f;
-        public const float MinionMoveSpeed = 2.8f;
+        public const float MinionMoveSpeed = 2.9f;
         public const float MinionAttackRange = 1.6f;
-        public const float MinionAttackInterval = 1.0f;
+        public const float MinionAttackInterval = 0.95f;
         public const float MinionAggroRange = 4.5f;
     }
 
     public static class BuildingRules
     {
-        public const float TowerMaxHealth = 2500f;
-        public const float TowerAttack = 90f;
-        public const float TowerArmor = 40f;
+        // Tuned so coordinated push threatens tower inside the 8–15 min match window.
+        public const float TowerMaxHealth = 1800f;
+        public const float TowerAttack = 85f;
+        public const float TowerArmor = 35f;
         public const float TowerAttackRange = 8f;
-        public const float TowerAttackInterval = 1.1f;
+        public const float TowerAttackInterval = 1.05f;
 
-        public const float CrystalMaxHealth = 3500f;
-        public const float CrystalArmor = 50f;
+        public const float CrystalMaxHealth = 2400f;
+        public const float CrystalArmor = 45f;
     }
 
     public static class EconomyRules

@@ -493,12 +493,13 @@ namespace Moba.Combat
         [ClientRpc]
         private void PlayHitClientRpc(ulong targetId, float damage, bool fromSkill)
         {
-            Debug.Log($"[Combat] hit target={targetId} dmg={damage:F0} skill={fromSkill}");
+            Feedback.CombatFeedbackService.Instance?.OnHit(targetId, damage, fromSkill);
         }
 
         [ClientRpc]
         private void PlaySkillFxClientRpc(byte slot, Vector3 aimDirection, float radius)
         {
+            Feedback.CombatFeedbackService.Instance?.OnSkillCast(slot);
             var center = _vfxPoint != null ? _vfxPoint.position : transform.position;
             var go = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             go.name = $"SkillFx_{slot}";

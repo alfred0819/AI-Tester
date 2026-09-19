@@ -5,19 +5,33 @@ using Moba.Core;
 
 namespace Moba.UI
 {
-    /// <summary>Owner-only combat HUD: HP, gold, skill CDs, hero name.</summary>
+    /// <summary>Owner combat HUD with match clock and polish hints.</summary>
     public sealed class CombatHud : MonoBehaviour
     {
         [SerializeField] private Text _hintText;
         [SerializeField] private Text _statusText;
+        [SerializeField] private Text _timerText;
 
         private HeroCombat _localCombat;
+        private float _matchElapsed;
 
         private void Update()
         {
             if (_localCombat == null)
             {
                 TryBindLocal();
+            }
+
+            if (MatchResultController.Instance == null || !MatchResultController.Instance.MatchEnded)
+            {
+                _matchElapsed += Time.deltaTime;
+            }
+
+            if (_timerText != null)
+            {
+                var m = Mathf.FloorToInt(_matchElapsed / 60f);
+                var s = Mathf.FloorToInt(_matchElapsed % 60f);
+                _timerText.text = $"{m:00}:{s:00}";
             }
 
             if (_localCombat == null)
@@ -27,7 +41,7 @@ namespace Moba.UI
 
             if (_hintText != null)
             {
-                _hintText.text = "J普攻 | Q/1 技能1 | R/2 技能2 | E/3 技能3 | B商店 | WASD移动";
+                _hintText.text = "按住 Q/R/E 看技能范围 | J普攻 | B商店 | WASD";
             }
 
             if (_statusText != null)
@@ -47,7 +61,7 @@ namespace Moba.UI
         {
             foreach (var combat in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
             {
-                if (combat.IsOwner && combat.Kind == CombatTargetKind.Hero)
+                if (combat.IsOwner && combat.Kind == CombatTargetKind.Hero && !combat.IsBotUnit)
                 {
                     _localCombat = combat;
                     return;

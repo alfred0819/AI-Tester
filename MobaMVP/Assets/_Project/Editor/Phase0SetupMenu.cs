@@ -28,7 +28,7 @@ namespace Moba.EditorTools
         private const string NetworkPrefabsDir = PrefabsDir + "/Network";
         private const string UnitsPrefabsDir = PrefabsDir + "/Units";
 
-        [MenuItem("MobaMVP/Setup Phase 0–4 Scenes And Prefabs")]
+        [MenuItem("MobaMVP/Setup Phase 0–5 Scenes And Prefabs")]
         public static void SetupAll()
         {
             EnsureFolders();
@@ -47,11 +47,18 @@ namespace Moba.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             EditorUtility.DisplayDialog(
-                "MobaMVP Phase 0–4",
-                "Ready.\n\nLobby: mode 1v1/3v3, hero, Fill Bots\n" +
-                "Arena: bots fill empty slots, push nexus\n" +
-                "Q/R/E skills | B shop | J attack",
+                "MobaMVP Phase 0–5 (MVP)",
+                "Ready for playtest.\n\n" +
+                "Hold Q/R/E for skill aim · lock ring on target · hit floaters\n" +
+                "3v3 + Fill Bots · push tower then crystal\n" +
+                "Room code = Port (default 7777)",
                 "OK");
+        }
+
+        [MenuItem("MobaMVP/Setup Phase 0–4 Scenes And Prefabs")]
+        public static void SetupPhase04Menu()
+        {
+            SetupAll();
         }
 
         [MenuItem("MobaMVP/Setup Phase 0–3 Scenes And Prefabs")]
@@ -276,7 +283,9 @@ namespace Moba.EditorTools
 
             var panel = CreateUiPanel(canvasGo.transform, "Panel");
             var title = CreateText(panel, "Title", "MobaMVP Lobby (LAN)", 36, TextAnchor.UpperCenter);
-            SetRect(title.GetComponent<RectTransform>(), 0.1f, 0.82f, 0.9f, 0.95f);
+            SetRect(title.GetComponent<RectTransform>(), 0.1f, 0.86f, 0.9f, 0.95f);
+            var roomHint = CreateText(panel, "RoomHint", "房间码 = Port（默认 7777，同 Wi‑Fi 联机填 Host IP）", 18, TextAnchor.UpperCenter);
+            SetRect(roomHint.GetComponent<RectTransform>(), 0.1f, 0.80f, 0.9f, 0.86f);
 
             var address = CreateInput(panel, "Address", NetworkDefaults.DefaultAddress);
             SetRect(address.GetComponent<RectTransform>(), 0.3f, 0.72f, 0.7f, 0.78f);
@@ -578,19 +587,29 @@ namespace Moba.EditorTools
             scaler.referenceResolution = new Vector2(1920, 1080);
 
             var hint = CreateText(canvasGo.transform, "Hint",
-                "J attack | Q/R/E skills | B shop | WASD", 26, TextAnchor.LowerCenter);
+                "Hold Q/R/E aim | J attack | B shop | WASD", 26, TextAnchor.LowerCenter);
             SetRect(hint.GetComponent<RectTransform>(), 0.1f, 0.02f, 0.9f, 0.08f);
 
             var status = CreateText(canvasGo.transform, "Status", "HP --", 24, TextAnchor.UpperLeft);
-            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.88f, 0.7f, 0.98f);
+            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.88f, 0.55f, 0.98f);
+
+            var timer = CreateText(canvasGo.transform, "Timer", "00:00", 28, TextAnchor.UpperRight);
+            SetRect(timer.GetComponent<RectTransform>(), 0.75f, 0.90f, 0.98f, 0.98f);
 
             var hud = canvasGo.AddComponent<CombatHud>();
             var hudSo = new SerializedObject(hud);
             hudSo.FindProperty("_hintText").objectReferenceValue = hint;
             hudSo.FindProperty("_statusText").objectReferenceValue = status;
+            hudSo.FindProperty("_timerText").objectReferenceValue = timer;
             hudSo.ApplyModifiedPropertiesWithoutUndo();
 
             CreateShopOverlay(canvasGo.transform);
+
+            var fxRoot = new GameObject("FeedbackSystems");
+            fxRoot.AddComponent<Moba.Feedback.CombatFeedbackService>();
+            fxRoot.AddComponent<Moba.Feedback.MobaAudio>();
+            fxRoot.AddComponent<SkillAimIndicator>();
+            fxRoot.AddComponent<TargetLockHighlight>();
         }
 
         private static void CreateShopOverlay(Transform canvas)
