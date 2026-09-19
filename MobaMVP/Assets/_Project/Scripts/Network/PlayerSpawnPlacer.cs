@@ -2,10 +2,11 @@ using Unity.Netcode;
 using UnityEngine;
 using Moba.Core;
 using Moba.Bootstrap;
+using Moba.Combat;
 
 namespace Moba.Network
 {
-    /// <summary>Moves newly spawned players to team spawn markers in the arena (server only).</summary>
+    /// <summary>Places players on team spawn markers (supports 3 slots per side).</summary>
     public sealed class PlayerSpawnPlacer : MonoBehaviour
     {
         private void OnEnable()
@@ -40,7 +41,6 @@ namespace Moba.Network
             var nm = NetworkManager.Singleton;
             if (nm != null && nm.IsServer)
             {
-                // Player object may spawn one frame later.
                 StartCoroutine(PlaceNextFrame(nm, clientId));
             }
         }
@@ -75,7 +75,8 @@ namespace Moba.Network
 
             var team = TeamRules.AssignTeam(slot, mode);
             var teamIndex = team == TeamId.Blue ? 0 : 1;
-            var marker = GameObject.Find($"SpawnPoint_Team{teamIndex}_0");
+            var slotInTeam = BotBrain.SpawnIndexInTeam(slot, mode);
+            var marker = HeroCombat.FindSpawnMarker(teamIndex, slotInTeam);
             if (marker == null)
             {
                 return;

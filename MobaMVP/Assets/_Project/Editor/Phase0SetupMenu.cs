@@ -28,7 +28,7 @@ namespace Moba.EditorTools
         private const string NetworkPrefabsDir = PrefabsDir + "/Network";
         private const string UnitsPrefabsDir = PrefabsDir + "/Units";
 
-        [MenuItem("MobaMVP/Setup Phase 0–3 Scenes And Prefabs")]
+        [MenuItem("MobaMVP/Setup Phase 0–4 Scenes And Prefabs")]
         public static void SetupAll()
         {
             EnsureFolders();
@@ -37,20 +37,27 @@ namespace Moba.EditorTools
             var minionPrefab = CreateOrUpdateMinionPrefab();
             var towerPrefab = CreateOrUpdateTowerPrefab();
             var crystalPrefab = CreateOrUpdateCrystalPrefab();
+            var botPrefab = CreateOrUpdateBotPrefab();
             var networkPrefab = CreateOrUpdateNetworkPrefab(
-                playerPrefab, dummyPrefab, minionPrefab, towerPrefab, crystalPrefab);
+                playerPrefab, dummyPrefab, minionPrefab, towerPrefab, crystalPrefab, botPrefab);
             CreateBootScene(networkPrefab);
             CreateLobbyScene(networkPrefab);
-            CreateArenaScene(dummyPrefab, minionPrefab, towerPrefab, crystalPrefab);
+            CreateArenaScene(dummyPrefab, minionPrefab, towerPrefab, crystalPrefab, botPrefab);
             ConfigureBuildSettings();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             EditorUtility.DisplayDialog(
-                "MobaMVP Phase 0–3",
-                "Ready.\n\nLobby: pick hero (磐卫/影袭/烬法/穿云)\n" +
-                "Arena: J attack | Q/R/E skills | B shop\n" +
-                "Push tower → crystal to win. Starting gold 500.",
+                "MobaMVP Phase 0–4",
+                "Ready.\n\nLobby: mode 1v1/3v3, hero, Fill Bots\n" +
+                "Arena: bots fill empty slots, push nexus\n" +
+                "Q/R/E skills | B shop | J attack",
                 "OK");
+        }
+
+        [MenuItem("MobaMVP/Setup Phase 0–3 Scenes And Prefabs")]
+        public static void SetupPhase03Menu()
+        {
+            SetupAll();
         }
 
         [MenuItem("MobaMVP/Setup Phase 0+1+2 Scenes And Prefabs")]
@@ -202,7 +209,8 @@ namespace Moba.EditorTools
             GameObject dummyPrefab,
             GameObject minionPrefab,
             GameObject towerPrefab,
-            GameObject crystalPrefab)
+            GameObject crystalPrefab,
+            GameObject botPrefab)
         {
             var path = NetworkPrefabsDir + "/MobaNetworkRoot.prefab";
             var root = new GameObject("MobaNetworkRoot");
@@ -226,6 +234,7 @@ namespace Moba.EditorTools
             AddPrefab(minionPrefab);
             AddPrefab(towerPrefab);
             AddPrefab(crystalPrefab);
+            AddPrefab(botPrefab);
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(root, path);
             Object.DestroyImmediate(root);
@@ -289,17 +298,28 @@ namespace Moba.EditorTools
             CreateText(panel, "HeroLabel", "Hero", 20, TextAnchor.MiddleRight);
             SetRect(panel.Find("HeroLabel").GetComponent<RectTransform>(), 0.08f, 0.48f, 0.28f, 0.54f);
 
+            var fillToggleGo = new GameObject("FillBotsToggle", typeof(RectTransform), typeof(Toggle), typeof(Image));
+            fillToggleGo.transform.SetParent(panel.transform, false);
+            SetRect(fillToggleGo.GetComponent<RectTransform>(), 0.3f, 0.40f, 0.7f, 0.46f);
+            fillToggleGo.GetComponent<Image>().color = new Color(0.15f, 0.18f, 0.22f, 1f);
+            var fillToggle = fillToggleGo.GetComponent<Toggle>();
+            fillToggle.isOn = true;
+            var fillLabel = CreateText(fillToggleGo.transform, "Label", "补位 Bot (缺人自动填充)", 20, TextAnchor.MiddleCenter);
+            StretchFull(fillLabel.GetComponent<RectTransform>());
+            CreateText(panel, "FillLabel", "Bots", 20, TextAnchor.MiddleRight);
+            SetRect(panel.Find("FillLabel").GetComponent<RectTransform>(), 0.08f, 0.40f, 0.28f, 0.46f);
+
             var hostBtn = CreateButton(panel, "HostButton", "Host");
-            SetRect(hostBtn.GetComponent<RectTransform>(), 0.2f, 0.34f, 0.48f, 0.44f);
+            SetRect(hostBtn.GetComponent<RectTransform>(), 0.2f, 0.28f, 0.48f, 0.38f);
             var joinBtn = CreateButton(panel, "JoinButton", "Join");
-            SetRect(joinBtn.GetComponent<RectTransform>(), 0.52f, 0.34f, 0.8f, 0.44f);
+            SetRect(joinBtn.GetComponent<RectTransform>(), 0.52f, 0.28f, 0.8f, 0.38f);
             var startBtn = CreateButton(panel, "StartMatchButton", "Start Match (Host)");
-            SetRect(startBtn.GetComponent<RectTransform>(), 0.2f, 0.22f, 0.8f, 0.32f);
+            SetRect(startBtn.GetComponent<RectTransform>(), 0.2f, 0.16f, 0.8f, 0.26f);
             var discBtn = CreateButton(panel, "DisconnectButton", "Disconnect");
-            SetRect(discBtn.GetComponent<RectTransform>(), 0.2f, 0.12f, 0.8f, 0.2f);
+            SetRect(discBtn.GetComponent<RectTransform>(), 0.2f, 0.06f, 0.8f, 0.14f);
 
             var status = CreateText(panel, "Status", "Status", 22, TextAnchor.MiddleCenter);
-            SetRect(status.GetComponent<RectTransform>(), 0.1f, 0.02f, 0.9f, 0.1f);
+            SetRect(status.GetComponent<RectTransform>(), 0.1f, 0.0f, 0.9f, 0.06f);
 
             var menu = canvasGo.AddComponent<LobbyMenu>();
             var menuSo = new SerializedObject(menu);
@@ -307,6 +327,7 @@ namespace Moba.EditorTools
             menuSo.FindProperty("_portField").objectReferenceValue = port;
             menuSo.FindProperty("_modeDropdown").objectReferenceValue = mode;
             menuSo.FindProperty("_heroDropdown").objectReferenceValue = hero;
+            menuSo.FindProperty("_fillBotsToggle").objectReferenceValue = fillToggle;
             menuSo.FindProperty("_statusText").objectReferenceValue = status;
             menuSo.FindProperty("_hostButton").objectReferenceValue = hostBtn;
             menuSo.FindProperty("_joinButton").objectReferenceValue = joinBtn;
@@ -332,7 +353,8 @@ namespace Moba.EditorTools
             GameObject dummyPrefab,
             GameObject minionPrefab,
             GameObject towerPrefab,
-            GameObject crystalPrefab)
+            GameObject crystalPrefab,
+            GameObject botPrefab)
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
 
@@ -341,10 +363,14 @@ namespace Moba.EditorTools
             ground.transform.localScale = new Vector3(4f, 1f, 12f);
             ground.GetComponent<Renderer>().sharedMaterial = CreateColorMaterial(new Color(0.25f, 0.32f, 0.28f));
 
-            CreateSpawnMarker("SpawnPoint_Team0_0", new Vector3(0f, 1f, -40f), new Color(0.2f, 0.45f, 1f));
-            CreateSpawnMarker("SpawnPoint_Team1_0", new Vector3(0f, 1f, 40f), new Color(1f, 0.3f, 0.25f));
+            // 3 spawn slots per team for 3v3
+            CreateSpawnMarker("SpawnPoint_Team0_0", new Vector3(-3f, 1f, -40f), new Color(0.2f, 0.45f, 1f));
+            CreateSpawnMarker("SpawnPoint_Team0_1", new Vector3(0f, 1f, -40f), new Color(0.2f, 0.45f, 1f));
+            CreateSpawnMarker("SpawnPoint_Team0_2", new Vector3(3f, 1f, -40f), new Color(0.2f, 0.45f, 1f));
+            CreateSpawnMarker("SpawnPoint_Team1_0", new Vector3(-3f, 1f, 40f), new Color(1f, 0.3f, 0.25f));
+            CreateSpawnMarker("SpawnPoint_Team1_1", new Vector3(0f, 1f, 40f), new Color(1f, 0.3f, 0.25f));
+            CreateSpawnMarker("SpawnPoint_Team1_2", new Vector3(3f, 1f, 40f), new Color(1f, 0.3f, 0.25f));
 
-            // Visual placeholders (non-networked) until server spawns real buildings.
             CreateVisualMarker("TowerMarker_Blue", PrimitiveType.Cylinder, new Vector3(0f, 1.5f, -25f),
                 new Vector3(2f, 1.5f, 2f), new Color(0.2f, 0.45f, 1f, 0.35f));
             CreateVisualMarker("TowerMarker_Red", PrimitiveType.Cylinder, new Vector3(0f, 1.5f, 25f),
@@ -386,6 +412,13 @@ namespace Moba.EditorTools
                 : null;
             waveSo.ApplyModifiedPropertiesWithoutUndo();
 
+            var botFillGo = new GameObject("BotFillSpawner");
+            var botFill = botFillGo.AddComponent<BotFillSpawner>();
+            var botSo = new SerializedObject(botFill);
+            botSo.FindProperty("_botPrefab").objectReferenceValue =
+                botPrefab != null ? botPrefab.GetComponent<NetworkObject>() : null;
+            botSo.ApplyModifiedPropertiesWithoutUndo();
+
             CreateMatchResultUi();
             CreateCombatHudOverlay();
 
@@ -397,6 +430,32 @@ namespace Moba.EditorTools
             }
 
             EditorSceneManager.SaveScene(scene, ScenesDir + "/Arena_1Lane.unity");
+        }
+
+        private static GameObject CreateOrUpdateBotPrefab()
+        {
+            var path = UnitsPrefabsDir + "/BotHero.prefab";
+            var capsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            capsule.name = "BotHero";
+            Object.DestroyImmediate(capsule.GetComponent<Collider>());
+
+            var netObj = capsule.AddComponent<NetworkObject>();
+            netObj.AlwaysReplicateAsRoot = true;
+            capsule.AddComponent<NetworkTransform>();
+
+            var combat = capsule.AddComponent<HeroCombat>();
+            var combatSo = new SerializedObject(combat);
+            combatSo.FindProperty("_useFixedTeam").boolValue = true;
+            combatSo.FindProperty("_isBot").boolValue = true;
+            combatSo.FindProperty("_fixedTeam").enumValueIndex = (int)TeamId.Blue;
+            combatSo.ApplyModifiedPropertiesWithoutUndo();
+
+            capsule.AddComponent<BotController>();
+            AttachHealthBar(capsule);
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(capsule, path);
+            Object.DestroyImmediate(capsule);
+            return prefab;
         }
 
         private static GameObject CreateOrUpdateMinionPrefab()

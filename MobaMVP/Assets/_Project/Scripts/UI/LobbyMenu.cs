@@ -13,6 +13,7 @@ namespace Moba.UI
         [SerializeField] private InputField _portField;
         [SerializeField] private Dropdown _modeDropdown;
         [SerializeField] private Dropdown _heroDropdown;
+        [SerializeField] private Toggle _fillBotsToggle;
         [SerializeField] private Text _statusText;
         [SerializeField] private Button _hostButton;
         [SerializeField] private Button _joinButton;
@@ -32,6 +33,7 @@ namespace Moba.UI
             if (_disconnectButton != null) _disconnectButton.onClick.AddListener(OnDisconnect);
             if (_modeDropdown != null) _modeDropdown.onValueChanged.AddListener(OnModeChanged);
             if (_heroDropdown != null) _heroDropdown.onValueChanged.AddListener(OnHeroChanged);
+            if (_fillBotsToggle != null) _fillBotsToggle.onValueChanged.AddListener(OnFillBotsChanged);
 
             var net = MobaNetworkController.Instance;
             if (net != null)
@@ -51,6 +53,7 @@ namespace Moba.UI
             if (_disconnectButton != null) _disconnectButton.onClick.RemoveListener(OnDisconnect);
             if (_modeDropdown != null) _modeDropdown.onValueChanged.RemoveListener(OnModeChanged);
             if (_heroDropdown != null) _heroDropdown.onValueChanged.RemoveListener(OnHeroChanged);
+            if (_fillBotsToggle != null) _fillBotsToggle.onValueChanged.RemoveListener(OnFillBotsChanged);
 
             var net = MobaNetworkController.Instance;
             if (net != null)
@@ -104,6 +107,11 @@ namespace Moba.UI
                     _ => 0
                 };
             }
+
+            if (_fillBotsToggle != null)
+            {
+                _fillBotsToggle.isOn = session.FillBots;
+            }
         }
 
         private void EnsureHeroOptions()
@@ -146,18 +154,29 @@ namespace Moba.UI
             {
                 session.SelectedHero = HeroCatalog.FromDropdownIndex(_heroDropdown.value);
             }
+
+            if (_fillBotsToggle != null)
+            {
+                session.FillBots = _fillBotsToggle.isOn;
+            }
         }
 
         private void OnModeChanged(int _)
         {
             ApplyUiToSession();
-            SetStatus($"Mode: {GameSession.Instance.Mode} (max {GameSession.Instance.MaxPlayers})");
+            SetStatus($"Mode: {GameSession.Instance.Mode} (max {GameSession.Instance.MaxPlayers}) FillBots={GameSession.Instance.FillBots}");
         }
 
         private void OnHeroChanged(int _)
         {
             ApplyUiToSession();
             SetStatus($"英雄: {HeroCatalog.Get(GameSession.Instance.SelectedHero).DisplayName}");
+        }
+
+        private void OnFillBotsChanged(bool _)
+        {
+            ApplyUiToSession();
+            SetStatus($"补位 Bot: {(GameSession.Instance.FillBots ? "开" : "关")}");
         }
 
         private void OnHost()
@@ -188,6 +207,7 @@ namespace Moba.UI
 
         private void OnStartMatch()
         {
+            ApplyUiToSession();
             var net = MobaNetworkController.Instance;
             if (net == null)
             {

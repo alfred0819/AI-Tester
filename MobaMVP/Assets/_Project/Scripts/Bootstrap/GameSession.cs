@@ -12,11 +12,18 @@ namespace Moba.Bootstrap
         [SerializeField] private string _joinAddress = NetworkDefaults.DefaultAddress;
         [SerializeField] private ushort _port = NetworkDefaults.DefaultPort;
         [SerializeField] private HeroId _selectedHero = HeroId.PanWei;
+        [SerializeField] private bool _fillBots = true;
 
         public GameModeKind Mode
         {
             get => _mode;
             set => _mode = value;
+        }
+
+        public bool FillBots
+        {
+            get => _fillBots;
+            set => _fillBots = value;
         }
 
         public HeroId SelectedHero

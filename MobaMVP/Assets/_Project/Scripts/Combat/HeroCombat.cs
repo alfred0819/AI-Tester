@@ -13,6 +13,7 @@ namespace Moba.Combat
         [SerializeField] private float _attackRangeOverride = -1f;
         [SerializeField] private Transform _vfxPoint;
         [SerializeField] private bool _useFixedTeam;
+        [SerializeField] private bool _isBot;
         [SerializeField] private TeamId _fixedTeam = TeamId.Red;
 
         private readonly HeroCombatState _state = new();
@@ -38,6 +39,10 @@ namespace Moba.Combat
             (byte)HeroId.PanWei, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<float> _stunLeft = new(
             0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<TeamId> _netTeam = new(
+            TeamId.None, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<bool> _netIsBot = new(
+            false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<int> _item0 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<int> _item1 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<int> _item2 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
@@ -60,8 +65,20 @@ namespace Moba.Combat
         public int Gold => _gold.Value;
         public HeroId SelectedHero => (HeroId)_heroId.Value;
         public bool IsStunned => _stunLeft.Value > 0f;
-        public CombatTargetKind Kind =>
-            _useFixedTeam ? CombatTargetKind.Dummy : CombatTargetKind.Hero;
+        public CombatTargetKind Kind
+        {
+            get
+            {
+                if (IsBotUnit)
+                {
+                    return CombatTargetKind.Hero;
+                }
+
+                return _useFixedTeam ? CombatTargetKind.Dummy : CombatTargetKind.Hero;
+            }
+        }
+
+        public bool IsBotUnit => _isBot || _netIsBot.Value;
         public Vector3 WorldPosition => transform.position;
         public float AttackRange =>
             _attackRangeOverride > 0f ? _attackRangeOverride : _state.Stats.AttackRange;
@@ -71,12 +88,22 @@ namespace Moba.Combat
         {
             get
             {
-                if (_useFixedTeam)
+                if (_avatar != null)
+                {
+                    return _avatar.Team;
+                }
+
+                if (IsSpawned && _netTeam.Value != TeamId.None)
+                {
+                    return _netTeam.Value;
+                }
+
+                if (_useFixedTeam || _isBot)
                 {
                     return _fixedTeam;
                 }
 
-                return _avatar != null ? _avatar.Team : TeamId.None;
+                return TeamId.None;
             }
         }
 
@@ -85,18 +112,36 @@ namespace Moba.Combat
             _avatar = GetComponent<PlayerAvatar>();
             if (IsServer && Kind == CombatTargetKind.Dummy)
             {
+                _netTeam.Value = _fixedTeam;
                 _state.ApplyHero(HeroId.PanWei);
                 _heroId.Value = (byte)HeroId.PanWei;
                 PushState();
             }
 
-            if (IsOwner && Kind == CombatTargetKind.Hero)
+            if (IsServer && IsBotUnit)
+            {
+                _netIsBot.Value = true;
+                _netTeam.Value = _fixedTeam;
+                _heroId.Value = (byte)_state.HeroId;
+                PushState();
+            }
+
+            if (IsOwner && Kind == CombatTargetKind.Hero && !IsBotUnit)
             {
                 var hero = GameSession.Instance != null
                     ? GameSession.Instance.SelectedHero
                     : HeroId.PanWei;
                 SelectHeroServerRpc((byte)hero);
             }
+        }
+
+        /// <summary>Call on server before Spawn for fill bots.</summary>
+        public void ConfigureBot(TeamId team, HeroId hero)
+        {
+            _isBot = true;
+            _useFixedTeam = true;
+            _fixedTeam = team;
+            _state.ApplyHero(hero == HeroId.None ? HeroId.PanWei : hero);
         }
 
         [ServerRpc]
@@ -112,6 +157,52 @@ namespace Moba.Combat
             _heroId.Value = (byte)_state.HeroId;
             PushState();
             Debug.Log($"[Hero] client {OwnerClientId} selected {_state.HeroId}");
+        }
+
+        public void ServerTryBasicAttack()
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            ExecuteBasicAttack();
+        }
+
+        public void ServerTrySkill(SkillSlot slot, Vector3 aimDirection)
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            if (aimDirection.sqrMagnitude < 0.0001f)
+            {
+                aimDirection = transform.forward;
+            }
+
+            ExecuteSkill(slot, aimDirection.normalized);
+        }
+
+        public void ServerMove(Vector3 direction, float deltaTime)
+        {
+            if (!IsServer || !_state.CanMove)
+            {
+                return;
+            }
+
+            var cmd = new PlayerCommand { MoveX = direction.x, MoveY = direction.z }.ClampedMove();
+            var speed = _state.EffectiveMoveSpeed;
+            if (speed <= 0.01f)
+            {
+                return;
+            }
+
+            transform.position += new Vector3(cmd.MoveX, 0f, cmd.MoveY) * speed * deltaTime;
+            if (cmd.MoveX * cmd.MoveX + cmd.MoveY * cmd.MoveY > 0.0001f)
+            {
+                transform.rotation = Quaternion.LookRotation(new Vector3(cmd.MoveX, 0f, cmd.MoveY), Vector3.up);
+            }
         }
 
         private void Update()
@@ -293,7 +384,13 @@ namespace Moba.Combat
         }
 
         [ServerRpc]
-        private void BasicAttackServerRpc()
+        private void BasicAttackServerRpc() => ExecuteBasicAttack();
+
+        [ServerRpc]
+        private void SkillServerRpc(byte slotByte, Vector3 aimDirection) =>
+            ExecuteSkill((SkillSlot)slotByte, aimDirection);
+
+        private void ExecuteBasicAttack()
         {
             if (!_state.TryStartBasicAttack())
             {
@@ -318,10 +415,8 @@ namespace Moba.Combat
             PlayHitClientRpc(target.NetworkObject.NetworkObjectId, dmg, false);
         }
 
-        [ServerRpc]
-        private void SkillServerRpc(byte slotByte, Vector3 aimDirection)
+        private void ExecuteSkill(SkillSlot slot, Vector3 aimDirection)
         {
-            var slot = (SkillSlot)slotByte;
             if (!_state.TryStartSkill(slot))
             {
                 return;
@@ -334,7 +429,7 @@ namespace Moba.Combat
 
             SyncCds();
             var skill = HeroCatalog.Get(_state.HeroId).GetSkill(slot);
-            PlaySkillFxClientRpc(slotByte, aimDirection, skill != null ? skill.Radius : 3f);
+            PlaySkillFxClientRpc((byte)slot, aimDirection, skill != null ? skill.Radius : 3f);
             SkillResolver.Execute(this, skill, aimDirection);
             PushState();
         }
@@ -345,13 +440,24 @@ namespace Moba.Combat
             PushState();
 
             var teamIndex = Team == TeamId.Blue ? 0 : 1;
-            var marker = GameObject.Find($"SpawnPoint_Team{teamIndex}_0");
+            var marker = FindSpawnMarker(teamIndex, 0);
             if (marker != null)
             {
                 transform.position = marker.transform.position;
             }
 
             RespawnedClientRpc();
+        }
+
+        public static GameObject FindSpawnMarker(int teamIndex, int slotInTeam)
+        {
+            var exact = GameObject.Find($"SpawnPoint_Team{teamIndex}_{slotInTeam}");
+            if (exact != null)
+            {
+                return exact;
+            }
+
+            return GameObject.Find($"SpawnPoint_Team{teamIndex}_0");
         }
 
         private void SyncCds()
