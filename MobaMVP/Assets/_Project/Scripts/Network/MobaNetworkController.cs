@@ -223,6 +223,20 @@ namespace Moba.Network
 
                 if (team == TeamId.None)
                 {
+                    // Fallback: inspect any remaining hero owned by that client (race before despawn).
+                    foreach (var combat in UnityEngine.Object.FindObjectsByType<HeroCombat>(
+                                 FindObjectsSortMode.None))
+                    {
+                        if (!combat.IsBotUnit && combat.OwnerClientId == clientId && combat.Team != TeamId.None)
+                        {
+                            team = combat.Team;
+                            break;
+                        }
+                    }
+                }
+
+                if (team == TeamId.None)
+                {
                     team = TeamId.Red;
                 }
 

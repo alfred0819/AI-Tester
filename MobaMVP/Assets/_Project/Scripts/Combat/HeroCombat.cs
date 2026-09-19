@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Moba.Core;
 using Moba.Network;
 using Moba.Bootstrap;
@@ -16,6 +18,7 @@ namespace Moba.Combat
         [SerializeField] private bool _useFixedTeam;
         [SerializeField] private bool _isBot;
         [SerializeField] private TeamId _fixedTeam = TeamId.Red;
+        [SerializeField] private int _fountainSlot;
 
         private readonly HeroCombatState _state = new();
         private readonly PlayerWallet _wallet = new(EconomyRules.StartingGold);
@@ -59,8 +62,12 @@ namespace Moba.Combat
             0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
         private PlayerAvatar _avatar;
+        private NetworkTransform _networkTransform;
         private float _passiveGoldAcc;
         private float _matchTime;
+
+        public static bool IsArenaSceneActive =>
+            SceneManager.GetActiveScene().name == SceneNames.Arena1Lane;
 
         public float Health => _health.Value;
         public float MaxHealth => _maxHealth.Value;
@@ -79,6 +86,7 @@ namespace Moba.Combat
         public bool IsRecalling => _recallLeft.Value > 0f;
         public HeroId SelectedHero => (HeroId)_heroId.Value;
         public bool IsStunned => _stunLeft.Value > 0f;
+        public int FountainSlot => _fountainSlot;
         public CombatTargetKind Kind
         {
             get
@@ -127,9 +135,30 @@ namespace Moba.Combat
             return new ScoreboardEntry(name, Team, Kills, Deaths, Assists, Gold, IsBotUnit);
         }
 
+        public void SetFountainSlot(int slotInTeam)
+        {
+            _fountainSlot = Mathf.Clamp(slotInTeam, 0, 2);
+        }
+
+        public void TryRegisterHumanWithMatch()
+        {
+            if (!IsServer || IsBotUnit || Kind != CombatTargetKind.Hero)
+            {
+                return;
+            }
+
+            if (Team == TeamId.None)
+            {
+                return;
+            }
+
+            MatchResultController.Instance?.RegisterHumanClient(OwnerClientId, Team);
+        }
+
         public override void OnNetworkSpawn()
         {
             _avatar = GetComponent<PlayerAvatar>();
+            _networkTransform = GetComponent<NetworkTransform>();
             if (IsServer && Kind == CombatTargetKind.Dummy)
             {
                 _netTeam.Value = _fixedTeam;
@@ -146,9 +175,9 @@ namespace Moba.Combat
                 PushState();
             }
 
-            if (IsServer && Kind == CombatTargetKind.Hero && !IsBotUnit)
+            if (IsServer)
             {
-                MatchResultController.Instance?.RegisterHumanClient(OwnerClientId, Team);
+                TryRegisterHumanWithMatch();
             }
 
             if (IsOwner && Kind == CombatTargetKind.Hero && !IsBotUnit)
@@ -181,11 +210,7 @@ namespace Moba.Combat
             _state.ApplyHero(hero);
             _heroId.Value = (byte)_state.HeroId;
             PushState();
-            if (Kind == CombatTargetKind.Hero && !IsBotUnit)
-            {
-                MatchResultController.Instance?.RegisterHumanClient(OwnerClientId, Team);
-            }
-
+            TryRegisterHumanWithMatch();
             Debug.Log($"[Hero] client {OwnerClientId} selected {_state.HeroId}");
         }
 
@@ -216,7 +241,7 @@ namespace Moba.Combat
 
         public void ServerMove(Vector3 direction, float deltaTime)
         {
-            if (!IsServer || !_state.CanMove)
+            if (!IsServer || !_state.CanMove || !IsArenaSceneActive)
             {
                 return;
             }
@@ -260,6 +285,13 @@ namespace Moba.Combat
             {
                 return;
             }
+
+            if (!IsArenaSceneActive)
+            {
+                return;
+            }
+
+            TryRegisterHumanWithMatch();
 
             _matchTime += Time.deltaTime;
             _state.Tick(Time.deltaTime);
@@ -363,13 +395,15 @@ namespace Moba.Combat
             }
 
             var raw = DamageFormula.Compute(type, power, ratio, _state.Stats.Armor, _state.Stats.MagicResist);
-            var afterShield = _state.Status.AbsorbDamage(raw);
-            _state.Stats.Health = Mathf.Max(0f, _state.Stats.Health - afterShield);
-            if (afterShield > 0f && _state.IsRecalling)
+            // Any landed hit (including fully shielded) cancels recall.
+            if (raw > 0f && _state.IsRecalling)
             {
                 _state.CancelRecall();
                 _recallLeft.Value = 0f;
             }
+
+            var afterShield = _state.Status.AbsorbDamage(raw);
+            _state.Stats.Health = Mathf.Max(0f, _state.Stats.Health - afterShield);
 
             if (attacker is HeroCombat heroAttacker &&
                 heroAttacker.Kind == CombatTargetKind.Hero &&
@@ -497,7 +531,7 @@ namespace Moba.Combat
         [ServerRpc]
         private void BuyItemServerRpc(byte itemByte)
         {
-            if (Kind != CombatTargetKind.Hero)
+            if (Kind != CombatTargetKind.Hero || !IsArenaSceneActive)
             {
                 return;
             }
@@ -516,7 +550,7 @@ namespace Moba.Combat
         [ServerRpc]
         private void RecallServerRpc()
         {
-            if (Kind != CombatTargetKind.Hero || !_state.TryStartRecall())
+            if (Kind != CombatTargetKind.Hero || !IsArenaSceneActive || !_state.TryStartRecall())
             {
                 return;
             }
@@ -534,7 +568,7 @@ namespace Moba.Combat
 
         private void ExecuteBasicAttack()
         {
-            if (!_state.TryStartBasicAttack())
+            if (!IsArenaSceneActive)
             {
                 return;
             }
@@ -549,6 +583,11 @@ namespace Moba.Combat
                 return;
             }
 
+            if (!_state.TryStartBasicAttack())
+            {
+                return;
+            }
+
             var dmg = target.ReceiveDamage(
                 _state.Stats.Attack,
                 Phase1HeroKit.BasicAttackRatio,
@@ -559,12 +598,17 @@ namespace Moba.Combat
 
         private void ExecuteSkill(SkillSlot slot, Vector3 aimDirection)
         {
-            if (!_state.TryStartSkill(slot))
+            if (!IsArenaSceneActive)
             {
                 return;
             }
 
             if (MatchResultController.Instance != null && MatchResultController.Instance.MatchEnded)
+            {
+                return;
+            }
+
+            if (!_state.TryStartSkill(slot))
             {
                 return;
             }
@@ -586,29 +630,44 @@ namespace Moba.Combat
         private void TeleportToFountainServer()
         {
             var teamIndex = Team == TeamId.Blue ? 0 : 1;
-            var slot = 0;
-            if (_avatar != null && NetworkManager != null)
+            var slot = ResolveFountainSlot();
+            var marker = FindSpawnMarker(teamIndex, slot);
+            if (marker == null)
             {
-                foreach (var id in NetworkManager.ConnectedClientsIds)
-                {
-                    if (id == OwnerClientId)
-                    {
-                        break;
-                    }
-
-                    slot++;
-                }
-
-                var mode = GameSession.Instance != null
-                    ? GameSession.Instance.Mode
-                    : GameModeKind.OneVsOne;
-                slot = BotBrain.SpawnIndexInTeam(slot, mode);
+                return;
             }
 
-            var marker = FindSpawnMarker(teamIndex, slot);
-            if (marker != null)
+            ApplyTeleport(marker.transform.position);
+        }
+
+        private int ResolveFountainSlot()
+        {
+            if (IsBotUnit)
             {
-                transform.position = marker.transform.position;
+                var bot = GetComponent<BotController>();
+                if (bot != null)
+                {
+                    return bot.SpawnSlotInTeam;
+                }
+            }
+
+            return _fountainSlot;
+        }
+
+        private void ApplyTeleport(Vector3 position)
+        {
+            if (_networkTransform == null)
+            {
+                _networkTransform = GetComponent<NetworkTransform>();
+            }
+
+            if (_networkTransform != null)
+            {
+                _networkTransform.Teleport(position, transform.rotation, transform.localScale);
+            }
+            else
+            {
+                transform.position = position;
             }
         }
 

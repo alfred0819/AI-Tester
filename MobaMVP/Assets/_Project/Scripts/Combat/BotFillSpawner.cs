@@ -111,6 +111,7 @@ namespace Moba.Combat
             var instance = Instantiate(_botPrefab, pos, Quaternion.identity);
             var combat = instance.GetComponent<HeroCombat>();
             combat.ConfigureBot(team, hero);
+            combat.SetFountainSlot(slotInTeam);
             var botAi = instance.GetComponent<BotController>();
             botAi?.SetSpawnSlot(slotInTeam);
             instance.Spawn(true);

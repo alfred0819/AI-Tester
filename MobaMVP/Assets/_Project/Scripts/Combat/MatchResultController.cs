@@ -53,9 +53,38 @@ namespace Moba.Combat
                 _backButton.onClick.AddListener(OnBackClicked);
             }
 
+            if (IsServer)
+            {
+                RescanHumanRoster();
+            }
+
             if (_winner.Value != TeamId.None)
             {
                 ShowResult(_winner.Value);
+            }
+        }
+
+        /// <summary>Re-bind humans after arena loads (players spawned earlier in lobby).</summary>
+        public void RescanHumanRoster()
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            foreach (var combat in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
+            {
+                if (combat.IsBotUnit || combat.Kind != CombatTargetKind.Hero)
+                {
+                    continue;
+                }
+
+                if (combat.Team == TeamId.None)
+                {
+                    continue;
+                }
+
+                RegisterHumanClient(combat.OwnerClientId, combat.Team);
             }
         }
 

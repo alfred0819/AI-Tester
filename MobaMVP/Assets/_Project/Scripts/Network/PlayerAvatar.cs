@@ -7,7 +7,7 @@ using Moba.Combat;
 
 namespace Moba.Network
 {
-    /// <summary>Networked greybox avatar: host-authoritative move, team color.</summary>
+    /// <summary>Networked greybox avatar: host-authoritative move (server-tick integrated), team color.</summary>
     [RequireComponent(typeof(NetworkObject))]
     public sealed class PlayerAvatar : NetworkBehaviour
     {
@@ -20,6 +20,7 @@ namespace Moba.Network
             NetworkVariableWritePermission.Server);
 
         private HeroCombat _combat;
+        private Vector3 _serverMoveInput;
 
         public TeamId Team => _team.Value;
 
@@ -47,21 +48,24 @@ namespace Moba.Network
 
         private void Update()
         {
-            if (!IsOwner)
+            if (IsOwner)
+            {
+                if (_combat != null && !_combat.IsAlive)
+                {
+                    _serverMoveInput = Vector3.zero;
+                }
+                else
+                {
+                    SubmitMoveServerRpc(ReadMoveInput());
+                }
+            }
+
+            if (!IsServer)
             {
                 return;
             }
 
-            if (_combat != null && !_combat.IsAlive)
-            {
-                return;
-            }
-
-            var move = ReadMoveInput();
-            if (move.sqrMagnitude > 0.0001f)
-            {
-                SubmitMoveServerRpc(move);
-            }
+            ApplyServerMove(Time.deltaTime);
         }
 
         private static Vector3 ReadMoveInput()
@@ -96,21 +100,32 @@ namespace Moba.Network
                 return;
             }
 
-            if (_combat != null && !_combat.CanMoveOnServer)
-            {
-                return;
-            }
-
             var cmd = new PlayerCommand
             {
                 MoveX = direction.x,
                 MoveY = direction.z
             }.ClampedMove();
+            _serverMoveInput = new Vector3(cmd.MoveX, 0f, cmd.MoveY);
+        }
 
-            if (cmd.MoveX * cmd.MoveX + cmd.MoveY * cmd.MoveY > 0.0001f)
+        private void ApplyServerMove(float deltaTime)
+        {
+            if (_combat != null && !_combat.CanMoveOnServer)
             {
-                _combat?.NotifyMovedServer();
+                return;
             }
+
+            if (!HeroCombat.IsArenaSceneActive)
+            {
+                return;
+            }
+
+            if (_serverMoveInput.sqrMagnitude < 0.0001f)
+            {
+                return;
+            }
+
+            _combat?.NotifyMovedServer();
 
             var speed = _combat != null ? _combat.EffectiveMoveSpeed : _moveSpeed;
             if (speed <= 0.01f)
@@ -118,12 +133,8 @@ namespace Moba.Network
                 return;
             }
 
-            transform.position += new Vector3(cmd.MoveX, 0f, cmd.MoveY) * speed * Time.deltaTime;
-
-            if (cmd.MoveX * cmd.MoveX + cmd.MoveY * cmd.MoveY > 0.0001f)
-            {
-                transform.rotation = Quaternion.LookRotation(new Vector3(cmd.MoveX, 0f, cmd.MoveY), Vector3.up);
-            }
+            transform.position += _serverMoveInput * speed * deltaTime;
+            transform.rotation = Quaternion.LookRotation(_serverMoveInput, Vector3.up);
         }
 
         private void AssignTeamOnServer()
@@ -144,6 +155,8 @@ namespace Moba.Network
             }
 
             _team.Value = TeamRules.AssignTeam(slot, mode);
+            _combat?.SetFountainSlot(BotBrain.SpawnIndexInTeam(slot, mode));
+            _combat?.TryRegisterHumanWithMatch();
         }
 
         private void OnTeamChanged(TeamId previous, TeamId next)

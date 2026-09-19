@@ -16,6 +16,8 @@ namespace Moba.Combat
 
         public void SetSpawnSlot(int slotInTeam) => _spawnSlotInTeam = slotInTeam;
 
+        public int SpawnSlotInTeam => _spawnSlotInTeam;
+
         public override void OnNetworkSpawn()
         {
             _combat = GetComponent<HeroCombat>();

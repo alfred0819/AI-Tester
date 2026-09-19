@@ -169,12 +169,13 @@ namespace Moba.EditorTools
             var bar = owner.transform.Find("HealthBar");
             if (bar != null)
             {
-                bar.localPosition = localOffset;
+                // WorldHealthBar LateUpdate places at WorldPosition + _offset; keep child at origin.
+                bar.localPosition = Vector3.zero;
                 var wh = bar.GetComponent<WorldHealthBar>();
                 if (wh != null)
                 {
                     var so = new SerializedObject(wh);
-                    so.FindProperty("_offset").vector3Value = Vector3.zero;
+                    so.FindProperty("_offset").vector3Value = localOffset;
                     so.ApplyModifiedPropertiesWithoutUndo();
                 }
             }

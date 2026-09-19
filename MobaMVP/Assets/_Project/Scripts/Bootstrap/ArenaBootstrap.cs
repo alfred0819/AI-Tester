@@ -27,6 +27,7 @@ namespace Moba.Bootstrap
             }
 
             Debug.Log($"[Arena] Ready mode={GameSession.Instance?.Mode} scene={SceneNames.Arena1Lane}");
+            Moba.Combat.MatchResultController.Instance?.RescanHumanRoster();
         }
     }
 }

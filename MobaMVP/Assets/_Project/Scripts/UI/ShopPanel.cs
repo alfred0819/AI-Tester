@@ -60,7 +60,7 @@ namespace Moba.UI
         {
             foreach (var combat in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
             {
-                if (combat.IsOwner && combat.Kind == CombatTargetKind.Hero)
+                if (combat.IsOwner && combat.Kind == CombatTargetKind.Hero && !combat.IsBotUnit)
                 {
                     _local = combat;
                     return;
