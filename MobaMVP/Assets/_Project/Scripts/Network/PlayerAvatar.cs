@@ -107,6 +107,12 @@ namespace Moba.Network
 
         private void ApplyServerMove(float deltaTime)
         {
+            if (_combat != null && !_combat.IsAlive)
+            {
+                _serverMoveInput = Vector3.zero;
+                return;
+            }
+
             if (_combat != null && !_combat.CanMoveOnServer)
             {
                 return;
