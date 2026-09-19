@@ -1,0 +1,24 @@
+{
+    "name": "Moba.Editor",
+    "rootNamespace": "Moba.Editor",
+    "references": [
+        "Moba.Core",
+        "Moba.Unity",
+        "Unity.Netcode.Runtime",
+        "Unity.Netcode.Components",
+        "Unity.InputSystem",
+        "Unity.InputSystem.UI",
+        "UnityEngine.UI"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
