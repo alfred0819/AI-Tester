@@ -107,6 +107,11 @@ namespace Moba.Network
                 MoveY = direction.z
             }.ClampedMove();
 
+            if (cmd.MoveX * cmd.MoveX + cmd.MoveY * cmd.MoveY > 0.0001f)
+            {
+                _combat?.NotifyMovedServer();
+            }
+
             var speed = _combat != null ? _combat.EffectiveMoveSpeed : _moveSpeed;
             if (speed <= 0.01f)
             {

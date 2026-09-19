@@ -4,6 +4,7 @@ using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Moba.Bootstrap;
+using Moba.Combat;
 using Moba.Core;
 
 namespace Moba.Network
@@ -176,6 +177,57 @@ namespace Moba.Network
             if (clientId == _networkManager.LocalClientId)
             {
                 Disconnected?.Invoke();
+                return;
+            }
+
+            if (_networkManager.IsServer)
+            {
+                HandlePeerDisconnectServer(clientId);
+            }
+        }
+
+        private void HandlePeerDisconnectServer(ulong clientId)
+        {
+            var session = GameSession.Instance;
+            var match = MatchResultController.Instance;
+            var inMatch = match != null &&
+                          SceneManager.GetActiveScene().name == SceneNames.Arena1Lane &&
+                          !match.MatchEnded;
+            var mode = session != null ? session.Mode : GameModeKind.OneVsOne;
+            var resolution = DisconnectPolicy.Resolve(mode, inMatch, disconnectedIsHost: false);
+            StatusChanged?.Invoke($"Disconnect policy={resolution} client={clientId}");
+
+            if (resolution == DisconnectResolution.EndMatchRemainingWins)
+            {
+                var winner = TeamId.None;
+                if (match != null && match.TryGetHumanTeam(_networkManager.LocalClientId, out var hostTeam))
+                {
+                    winner = DisconnectPolicy.WinnerWhenOpponentLeft(hostTeam);
+                }
+                else
+                {
+                    winner = TeamId.Blue;
+                }
+
+                match?.EndMatchServer(winner, endReason: 1);
+                return;
+            }
+
+            if (resolution == DisconnectResolution.SpawnReplacementBot)
+            {
+                var team = TeamId.None;
+                if (match != null)
+                {
+                    match.TryGetHumanTeam(clientId, out team);
+                }
+
+                if (team == TeamId.None)
+                {
+                    team = TeamId.Red;
+                }
+
+                var fill = UnityEngine.Object.FindFirstObjectByType<BotFillSpawner>();
+                fill?.SpawnReplacementBot(team);
             }
         }
     }

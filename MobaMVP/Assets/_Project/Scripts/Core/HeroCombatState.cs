@@ -25,10 +25,12 @@ namespace Moba.Core
         public float Skill3CooldownRemaining;
         public float RespawnRemaining;
         public float CooldownReduction;
+        public RecallChannelState Recall { get; } = new();
 
         public bool IsDead => !Stats.IsAlive;
+        public bool IsRecalling => Recall.IsChanneling;
         public bool CanMove => Stats.IsAlive && !Status.IsStunned;
-        public bool CanAct => Stats.IsAlive && !Status.IsStunned;
+        public bool CanAct => Stats.IsAlive && !Status.IsStunned && !IsRecalling;
 
         public float EffectiveMoveSpeed => Stats.MoveSpeed * Status.MoveSpeedMultiplier;
 
@@ -85,11 +87,30 @@ namespace Moba.Core
             Skill3CooldownRemaining = System.MathF.Max(0f, Skill3CooldownRemaining - deltaTime);
             Status.Tick(deltaTime);
 
-            if (IsDead && RespawnRemaining > 0f)
+            if (IsDead)
             {
-                RespawnRemaining = System.MathF.Max(0f, RespawnRemaining - deltaTime);
+                Recall.Cancel();
+                if (RespawnRemaining > 0f)
+                {
+                    RespawnRemaining = System.MathF.Max(0f, RespawnRemaining - deltaTime);
+                }
             }
         }
+
+        public bool TryStartRecall()
+        {
+            if (!Stats.IsAlive || Status.IsStunned || IsRecalling)
+            {
+                return false;
+            }
+
+            return Recall.TryStart(RecallRules.ChannelSeconds);
+        }
+
+        public void CancelRecall() => Recall.Cancel();
+
+        /// <summary>Returns true when recall channel finishes.</summary>
+        public bool TickRecall(float deltaTime) => Recall.Tick(deltaTime);
 
         public bool TryStartBasicAttack()
         {
@@ -160,6 +181,7 @@ namespace Moba.Core
             AttackCooldownRemaining = 0f;
             Status.StunRemaining = 0f;
             Status.ShieldRemaining = 0f;
+            Recall.Cancel();
         }
 
         public bool ReadyToRespawn => IsDead && RespawnRemaining <= 0f;
@@ -177,6 +199,7 @@ namespace Moba.Core
             Status.SlowRemaining = 0f;
             Status.ShieldRemaining = 0f;
             Status.HasteRemaining = 0f;
+            Recall.Cancel();
         }
 
         public bool TryPurchase(ItemId itemId, PlayerWallet wallet, out string error)

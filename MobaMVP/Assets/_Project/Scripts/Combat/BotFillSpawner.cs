@@ -71,6 +71,35 @@ namespace Moba.Combat
             return true;
         }
 
+        /// <summary>Mid-match replacement when a human drops in 3v3.</summary>
+        public void SpawnReplacementBot(TeamId team)
+        {
+            var nm = NetworkManager.Singleton;
+            if (nm == null || !nm.IsServer || _botPrefab == null || team == TeamId.None)
+            {
+                return;
+            }
+
+            var slotInTeam = CountTeamHeroes(team);
+            var hero = BotBrain.PickHeroForSlot(slotInTeam + (team == TeamId.Red ? 3 : 0));
+            SpawnBot(team, hero, Mathf.Clamp(slotInTeam, 0, 2));
+            Debug.Log($"[BotFill] replacement bot for {team} slot={slotInTeam}");
+        }
+
+        private static int CountTeamHeroes(TeamId team)
+        {
+            var n = 0;
+            foreach (var combat in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
+            {
+                if (combat.Kind == CombatTargetKind.Hero && combat.Team == team && combat.IsAlive)
+                {
+                    n++;
+                }
+            }
+
+            return n;
+        }
+
         private void SpawnBot(TeamId team, HeroId hero, int slotInTeam)
         {
             var teamIndex = team == TeamId.Blue ? 0 : 1;

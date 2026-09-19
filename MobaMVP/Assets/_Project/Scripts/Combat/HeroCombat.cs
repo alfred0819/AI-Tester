@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using Moba.Core;
@@ -6,7 +7,7 @@ using Moba.Bootstrap;
 
 namespace Moba.Combat
 {
-    /// <summary>Host-authoritative hero: kit, skills, gold, items, status, death/respawn.</summary>
+    /// <summary>Host-authoritative hero: kit, skills, gold, items, status, death/respawn, KDA, recall.</summary>
     [RequireComponent(typeof(NetworkObject))]
     public sealed class HeroCombat : NetworkBehaviour, ICombatTarget
     {
@@ -18,6 +19,8 @@ namespace Moba.Combat
 
         private readonly HeroCombatState _state = new();
         private readonly PlayerWallet _wallet = new(EconomyRules.StartingGold);
+        private readonly PlayerCombatRecord _record = new();
+        private readonly AssistTracker _assists = new();
 
         private readonly NetworkVariable<float> _health = new(
             600f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
@@ -49,9 +52,15 @@ namespace Moba.Combat
         private readonly NetworkVariable<int> _item3 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<int> _item4 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
         private readonly NetworkVariable<int> _item5 = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _kills = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _deaths = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<int> _assistsNet = new(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<float> _recallLeft = new(
+            0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
         private PlayerAvatar _avatar;
         private float _passiveGoldAcc;
+        private float _matchTime;
 
         public float Health => _health.Value;
         public float MaxHealth => _maxHealth.Value;
@@ -63,6 +72,11 @@ namespace Moba.Combat
         public float Skill2Cd => _skill2Cd.Value;
         public float Skill3Cd => _skill3Cd.Value;
         public int Gold => _gold.Value;
+        public int Kills => _kills.Value;
+        public int Deaths => _deaths.Value;
+        public int Assists => _assistsNet.Value;
+        public float RecallRemaining => _recallLeft.Value;
+        public bool IsRecalling => _recallLeft.Value > 0f;
         public HeroId SelectedHero => (HeroId)_heroId.Value;
         public bool IsStunned => _stunLeft.Value > 0f;
         public CombatTargetKind Kind
@@ -107,6 +121,12 @@ namespace Moba.Combat
             }
         }
 
+        public ScoreboardEntry ToScoreboardEntry()
+        {
+            var name = HeroCatalog.Get(SelectedHero).DisplayName;
+            return new ScoreboardEntry(name, Team, Kills, Deaths, Assists, Gold, IsBotUnit);
+        }
+
         public override void OnNetworkSpawn()
         {
             _avatar = GetComponent<PlayerAvatar>();
@@ -124,6 +144,11 @@ namespace Moba.Combat
                 _netTeam.Value = _fixedTeam;
                 _heroId.Value = (byte)_state.HeroId;
                 PushState();
+            }
+
+            if (IsServer && Kind == CombatTargetKind.Hero && !IsBotUnit)
+            {
+                MatchResultController.Instance?.RegisterHumanClient(OwnerClientId, Team);
             }
 
             if (IsOwner && Kind == CombatTargetKind.Hero && !IsBotUnit)
@@ -156,6 +181,11 @@ namespace Moba.Combat
             _state.ApplyHero(hero);
             _heroId.Value = (byte)_state.HeroId;
             PushState();
+            if (Kind == CombatTargetKind.Hero && !IsBotUnit)
+            {
+                MatchResultController.Instance?.RegisterHumanClient(OwnerClientId, Team);
+            }
+
             Debug.Log($"[Hero] client {OwnerClientId} selected {_state.HeroId}");
         }
 
@@ -192,6 +222,11 @@ namespace Moba.Combat
             }
 
             var cmd = new PlayerCommand { MoveX = direction.x, MoveY = direction.z }.ClampedMove();
+            if (cmd.MoveX * cmd.MoveX + cmd.MoveY * cmd.MoveY > 0.0001f)
+            {
+                NotifyMovedServer();
+            }
+
             var speed = _state.EffectiveMoveSpeed;
             if (speed <= 0.01f)
             {
@@ -205,6 +240,20 @@ namespace Moba.Combat
             }
         }
 
+        public void NotifyMovedServer()
+        {
+            if (!IsServer)
+            {
+                return;
+            }
+
+            if (_state.IsRecalling)
+            {
+                _state.CancelRecall();
+                _recallLeft.Value = 0f;
+            }
+        }
+
         private void Update()
         {
             if (!IsServer)
@@ -212,10 +261,27 @@ namespace Moba.Combat
                 return;
             }
 
+            _matchTime += Time.deltaTime;
             _state.Tick(Time.deltaTime);
             SyncCds();
             _stunLeft.Value = _state.Status.StunRemaining;
             _respawnLeft.Value = _state.RespawnRemaining;
+
+            if (_state.IsRecalling)
+            {
+                if (_state.TickRecall(Time.deltaTime))
+                {
+                    CompleteRecallServer();
+                }
+                else
+                {
+                    _recallLeft.Value = _state.Recall.Remaining;
+                }
+            }
+            else
+            {
+                _recallLeft.Value = 0f;
+            }
 
             if (_state.ReadyToRespawn)
             {
@@ -277,6 +343,8 @@ namespace Moba.Combat
             if (stun > 0f)
             {
                 _state.Status.ApplyStun(stun);
+                _state.CancelRecall();
+                _recallLeft.Value = 0f;
             }
 
             if (slowDuration > 0f)
@@ -297,20 +365,74 @@ namespace Moba.Combat
             var raw = DamageFormula.Compute(type, power, ratio, _state.Stats.Armor, _state.Stats.MagicResist);
             var afterShield = _state.Status.AbsorbDamage(raw);
             _state.Stats.Health = Mathf.Max(0f, _state.Stats.Health - afterShield);
+            if (afterShield > 0f && _state.IsRecalling)
+            {
+                _state.CancelRecall();
+                _recallLeft.Value = 0f;
+            }
+
+            if (attacker is HeroCombat heroAttacker &&
+                heroAttacker.Kind == CombatTargetKind.Hero &&
+                heroAttacker.NetworkObject != null)
+            {
+                _assists.RecordHit(heroAttacker.NetworkObject.NetworkObjectId, _matchTime);
+            }
+
             PushState();
             if (_state.IsDead)
             {
                 _state.MarkDead();
+                _record.RegisterDeath();
+                _deaths.Value = _record.Deaths;
                 PushState();
                 if (attacker is HeroCombat killer && killer.Kind == CombatTargetKind.Hero)
                 {
+                    killer.RegisterKillServer();
                     killer.AddGoldServer(EconomyRules.BountyFor(Kind));
+                    CreditAssistsServer(killer);
                 }
 
+                _assists.Clear();
                 DiedClientRpc();
             }
 
             return afterShield;
+        }
+
+        private void RegisterKillServer()
+        {
+            _record.RegisterKill();
+            _kills.Value = _record.Kills;
+        }
+
+        private void RegisterAssistServer()
+        {
+            _record.RegisterAssist();
+            _assistsNet.Value = _record.Assists;
+            AddGoldServer(EconomyRules.GoldPerAssist);
+        }
+
+        private void CreditAssistsServer(HeroCombat killer)
+        {
+            var killerId = killer.NetworkObject != null ? killer.NetworkObject.NetworkObjectId : 0UL;
+            var ids = _assists.CollectAssists(killerId, _matchTime);
+            if (ids.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var combat in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
+            {
+                if (!combat.IsSpawned || combat.NetworkObject == null)
+                {
+                    continue;
+                }
+
+                if (ids.Contains(combat.NetworkObject.NetworkObjectId))
+                {
+                    combat.RegisterAssistServer();
+                }
+            }
         }
 
         public void RequestBasicAttack()
@@ -350,6 +472,14 @@ namespace Moba.Combat
             }
         }
 
+        public void RequestRecall()
+        {
+            if (IsOwner)
+            {
+                RecallServerRpc();
+            }
+        }
+
         public ItemId GetItemSlot(int index)
         {
             return index switch
@@ -381,6 +511,18 @@ namespace Moba.Combat
             PushItems();
             PushState();
             Debug.Log($"[Shop] bought {(ItemId)itemByte} gold={_wallet.Gold}");
+        }
+
+        [ServerRpc]
+        private void RecallServerRpc()
+        {
+            if (Kind != CombatTargetKind.Hero || !_state.TryStartRecall())
+            {
+                return;
+            }
+
+            _recallLeft.Value = _state.Recall.Remaining;
+            Debug.Log($"[Recall] client {OwnerClientId} channeling");
         }
 
         [ServerRpc]
@@ -434,18 +576,47 @@ namespace Moba.Combat
             PushState();
         }
 
-        private void PerformRespawn()
+        private void CompleteRecallServer()
         {
-            _state.Respawn();
-            PushState();
+            _recallLeft.Value = 0f;
+            TeleportToFountainServer();
+            RecallDoneClientRpc();
+        }
 
+        private void TeleportToFountainServer()
+        {
             var teamIndex = Team == TeamId.Blue ? 0 : 1;
-            var marker = FindSpawnMarker(teamIndex, 0);
+            var slot = 0;
+            if (_avatar != null && NetworkManager != null)
+            {
+                foreach (var id in NetworkManager.ConnectedClientsIds)
+                {
+                    if (id == OwnerClientId)
+                    {
+                        break;
+                    }
+
+                    slot++;
+                }
+
+                var mode = GameSession.Instance != null
+                    ? GameSession.Instance.Mode
+                    : GameModeKind.OneVsOne;
+                slot = BotBrain.SpawnIndexInTeam(slot, mode);
+            }
+
+            var marker = FindSpawnMarker(teamIndex, slot);
             if (marker != null)
             {
                 transform.position = marker.transform.position;
             }
+        }
 
+        private void PerformRespawn()
+        {
+            _state.Respawn();
+            PushState();
+            TeleportToFountainServer();
             RespawnedClientRpc();
         }
 
@@ -487,6 +658,10 @@ namespace Moba.Combat
             _gold.Value = _wallet.Gold;
             _stunLeft.Value = _state.Status.StunRemaining;
             _heroId.Value = (byte)_state.HeroId;
+            _kills.Value = _record.Kills;
+            _deaths.Value = _record.Deaths;
+            _assistsNet.Value = _record.Assists;
+            _recallLeft.Value = _state.Recall.Remaining;
             PushItems();
         }
 
@@ -525,6 +700,12 @@ namespace Moba.Combat
 
         [ClientRpc]
         private void RespawnedClientRpc() => SetVisualDead(false);
+
+        [ClientRpc]
+        private void RecallDoneClientRpc()
+        {
+            // Soft feedback hook for local VFX if needed later.
+        }
 
         private void SetVisualDead(bool dead)
         {

@@ -42,6 +42,7 @@ namespace Moba.Core
         public const int GoldPerMinion = 18;
         public const int GoldPerTower = 150;
         public const int GoldPerHeroKill = 200;
+        public const int GoldPerAssist = RecallRules.GoldPerAssist;
         public const float PassiveGoldPerSecond = 1.2f;
 
         public static int BountyFor(CombatTargetKind kind)

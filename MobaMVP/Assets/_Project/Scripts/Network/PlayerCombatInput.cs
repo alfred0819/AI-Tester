@@ -6,7 +6,7 @@ using Moba.Core;
 
 namespace Moba.Network
 {
-    /// <summary>Owner combat input: attack, skills (Q/R/E or 1/2/3), B shop.</summary>
+    /// <summary>Owner combat input: attack, skills (Q/R/E or 1/2/3), B shop, T recall.</summary>
     public sealed class PlayerCombatInput : NetworkBehaviour
     {
         [SerializeField] private HeroCombat _combat;
@@ -43,6 +43,11 @@ namespace Moba.Network
             if (!_combat.IsAlive || _combat.IsStunned)
             {
                 return;
+            }
+
+            if (keyboard != null && keyboard.tKey.wasPressedThisFrame)
+            {
+                _combat.RequestRecall();
             }
 
             var attack =

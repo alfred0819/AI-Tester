@@ -28,7 +28,7 @@ namespace Moba.EditorTools
         private const string NetworkPrefabsDir = PrefabsDir + "/Network";
         private const string UnitsPrefabsDir = PrefabsDir + "/Units";
 
-        [MenuItem("MobaMVP/Setup Phase 0–5 Scenes And Prefabs")]
+        [MenuItem("MobaMVP/Setup Phase 0–6 Scenes And Prefabs")]
         public static void SetupAll()
         {
             EnsureFolders();
@@ -47,12 +47,18 @@ namespace Moba.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             EditorUtility.DisplayDialog(
-                "MobaMVP Phase 0–5 (MVP)",
-                "Ready for playtest.\n\n" +
-                "Hold Q/R/E for skill aim · lock ring on target · hit floaters\n" +
-                "3v3 + Fill Bots · push tower then crystal\n" +
+                "MobaMVP Phase 0–6",
+                "Post-MVP polish ready.\n\n" +
+                "Settle KDA · Minimap · T Recall · Disconnect policy\n" +
+                "Hold Q/R/E aim · B shop · push crystal\n" +
                 "Room code = Port (default 7777)",
                 "OK");
+        }
+
+        [MenuItem("MobaMVP/Setup Phase 0–5 Scenes And Prefabs")]
+        public static void SetupPhase05Menu()
+        {
+            SetupAll();
         }
 
         [MenuItem("MobaMVP/Setup Phase 0–4 Scenes And Prefabs")]
@@ -561,14 +567,16 @@ namespace Moba.EditorTools
             canvas.sortingOrder = 100;
 
             var panel = CreateUiPanel(canvasGo.transform, "Panel");
-            panel.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.75f);
+            panel.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0.78f);
             panel.SetActive(false);
 
-            var title = CreateText(panel.transform, "ResultText", "对局结束", 48, TextAnchor.MiddleCenter);
-            SetRect(title.GetComponent<RectTransform>(), 0.1f, 0.45f, 0.9f, 0.7f);
+            var title = CreateText(panel.transform, "ResultText", "对局结束", 28, TextAnchor.UpperCenter);
+            SetRect(title.GetComponent<RectTransform>(), 0.08f, 0.32f, 0.92f, 0.88f);
+            title.horizontalOverflow = HorizontalWrapMode.Wrap;
+            title.verticalOverflow = VerticalWrapMode.Overflow;
 
             var back = CreateButton(panel.transform, "BackButton", "返回大厅");
-            SetRect(back.GetComponent<RectTransform>(), 0.35f, 0.25f, 0.65f, 0.38f);
+            SetRect(back.GetComponent<RectTransform>(), 0.35f, 0.12f, 0.65f, 0.26f);
 
             var so = new SerializedObject(controller);
             so.FindProperty("_panel").objectReferenceValue = panel;
@@ -587,11 +595,11 @@ namespace Moba.EditorTools
             scaler.referenceResolution = new Vector2(1920, 1080);
 
             var hint = CreateText(canvasGo.transform, "Hint",
-                "Hold Q/R/E aim | J attack | B shop | WASD", 26, TextAnchor.LowerCenter);
+                "Hold Q/R/E aim | J attack | B shop | T recall | WASD", 26, TextAnchor.LowerCenter);
             SetRect(hint.GetComponent<RectTransform>(), 0.1f, 0.02f, 0.9f, 0.08f);
 
-            var status = CreateText(canvasGo.transform, "Status", "HP --", 24, TextAnchor.UpperLeft);
-            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.88f, 0.55f, 0.98f);
+            var status = CreateText(canvasGo.transform, "Status", "HP --", 22, TextAnchor.UpperLeft);
+            SetRect(status.GetComponent<RectTransform>(), 0.02f, 0.86f, 0.62f, 0.98f);
 
             var timer = CreateText(canvasGo.transform, "Timer", "00:00", 28, TextAnchor.UpperRight);
             SetRect(timer.GetComponent<RectTransform>(), 0.75f, 0.90f, 0.98f, 0.98f);
@@ -603,6 +611,7 @@ namespace Moba.EditorTools
             hudSo.FindProperty("_timerText").objectReferenceValue = timer;
             hudSo.ApplyModifiedPropertiesWithoutUndo();
 
+            CreateMinimap(canvasGo.transform);
             CreateShopOverlay(canvasGo.transform);
 
             var fxRoot = new GameObject("FeedbackSystems");
@@ -610,6 +619,30 @@ namespace Moba.EditorTools
             fxRoot.AddComponent<Moba.Feedback.MobaAudio>();
             fxRoot.AddComponent<SkillAimIndicator>();
             fxRoot.AddComponent<TargetLockHighlight>();
+        }
+
+        private static void CreateMinimap(Transform canvas)
+        {
+            var map = CreateUiPanel(canvas, "Minimap");
+            map.GetComponent<Image>().color = new Color(0.08f, 0.12f, 0.1f, 0.82f);
+            var rt = map.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.02f, 0.02f);
+            rt.anchorMax = new Vector2(0.18f, 0.22f);
+            rt.offsetMin = Vector2.zero;
+            rt.offsetMax = Vector2.zero;
+
+            var border = CreateUiPanel(map.transform, "LaneStripe");
+            border.GetComponent<Image>().color = new Color(0.35f, 0.45f, 0.38f, 0.55f);
+            var brt = border.GetComponent<RectTransform>();
+            brt.anchorMin = new Vector2(0.42f, 0.05f);
+            brt.anchorMax = new Vector2(0.58f, 0.95f);
+            brt.offsetMin = Vector2.zero;
+            brt.offsetMax = Vector2.zero;
+
+            var view = map.AddComponent<MinimapView>();
+            var so = new SerializedObject(view);
+            so.FindProperty("_mapRoot").objectReferenceValue = rt;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static void CreateShopOverlay(Transform canvas)

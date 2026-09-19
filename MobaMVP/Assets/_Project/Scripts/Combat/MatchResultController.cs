@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -6,7 +7,7 @@ using Moba.Core;
 
 namespace Moba.Combat
 {
-    /// <summary>Ends the match when a crystal falls; shows result overlay.</summary>
+    /// <summary>Ends the match; shows KDA/gold/duration scoreboard; tracks human roster for disconnect.</summary>
     public sealed class MatchResultController : NetworkBehaviour
     {
         public static MatchResultController Instance { get; private set; }
@@ -19,10 +20,21 @@ namespace Moba.Combat
             TeamId.None,
             NetworkVariableReadPermission.Everyone,
             NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<float> _duration = new(
+            0f,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
+        private readonly NetworkVariable<byte> _endReason = new(
+            0,
+            NetworkVariableReadPermission.Everyone,
+            NetworkVariableWritePermission.Server);
 
+        private readonly Dictionary<ulong, TeamId> _humanTeams = new();
         private bool _ended;
+        private float _elapsed;
 
         public bool MatchEnded => _ended || _winner.Value != TeamId.None;
+        public float MatchDuration => _duration.Value > 0f ? _duration.Value : _elapsed;
 
         private void Awake()
         {
@@ -56,7 +68,39 @@ namespace Moba.Combat
             }
         }
 
+        private void Update()
+        {
+            if (!IsServer || _ended)
+            {
+                return;
+            }
+
+            _elapsed += Time.deltaTime;
+            _duration.Value = _elapsed;
+        }
+
+        public void RegisterHumanClient(ulong clientId, TeamId team)
+        {
+            if (!IsServer || team == TeamId.None)
+            {
+                return;
+            }
+
+            _humanTeams[clientId] = team;
+        }
+
+        public bool TryGetHumanTeam(ulong clientId, out TeamId team)
+        {
+            return _humanTeams.TryGetValue(clientId, out team);
+        }
+
         public void EndMatchServer(TeamId winner, TeamId destroyedCrystalTeam)
+        {
+            EndMatchServer(winner, endReason: 0);
+            Debug.Log($"[Match] Winner={winner} (crystal {destroyedCrystalTeam} destroyed)");
+        }
+
+        public void EndMatchServer(TeamId winner, byte endReason)
         {
             if (!IsServer || _ended)
             {
@@ -64,8 +108,9 @@ namespace Moba.Combat
             }
 
             _ended = true;
+            _duration.Value = _elapsed;
+            _endReason.Value = endReason;
             _winner.Value = winner;
-            Debug.Log($"[Match] Winner={winner} (crystal {destroyedCrystalTeam} destroyed)");
         }
 
         private void OnWinnerChanged(TeamId previous, TeamId next)
@@ -86,15 +131,52 @@ namespace Moba.Combat
 
             if (_resultText != null)
             {
-                _resultText.text = winner == TeamId.Blue
-                    ? "蓝方胜利！水晶已被摧毁"
-                    : winner == TeamId.Red
-                        ? "红方胜利！水晶已被摧毁"
-                        : "对局结束";
+                _resultText.text = BuildScoreboardText(winner);
             }
 
             Time.timeScale = 1f;
-            // Freeze further combat by leaving MatchEnded true; units check optionally later.
+        }
+
+        private string BuildScoreboardText(TeamId winner)
+        {
+            var label = winner == TeamId.Blue
+                ? "蓝方胜利！"
+                : winner == TeamId.Red
+                    ? "红方胜利！"
+                    : "对局结束";
+            if (_endReason.Value == 1)
+            {
+                label += "（对手断线）";
+            }
+            else if (winner != TeamId.None)
+            {
+                label += " 水晶已被摧毁";
+            }
+
+            var entries = new List<ScoreboardEntry>();
+            foreach (var combat in FindObjectsByType<HeroCombat>(FindObjectsSortMode.None))
+            {
+                if (combat.Kind != CombatTargetKind.Hero)
+                {
+                    continue;
+                }
+
+                entries.Add(combat.ToScoreboardEntry());
+            }
+
+            entries.Sort((a, b) =>
+            {
+                var ta = a.Team == TeamId.Blue ? 0 : 1;
+                var tb = b.Team == TeamId.Blue ? 0 : 1;
+                if (ta != tb)
+                {
+                    return ta.CompareTo(tb);
+                }
+
+                return b.Kills.CompareTo(a.Kills);
+            });
+
+            return MatchScoreboard.FormatResult(label, MatchDuration, entries);
         }
 
         private void OnBackClicked()
