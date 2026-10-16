@@ -1,0 +1,16 @@
+{
+  "tick_hz": 60,
+  "shared_team_meter": true,
+  "meter_max": 300,
+  "meter_per_stock": 100,
+  "evade_meter_cost": 50,
+  "evade_frames": 20,
+  "evade_invuln_frames": 14,
+  "intro_invuln_frames": 40,
+  "hitstop_default": 6,
+  "min_fighter_gap": 56,
+  "ground_y": 560,
+  "stage_left": 80,
+  "stage_right": 1200,
+  "combo_starter": "5A > 236A > 236236A"
+}
