@@ -1,0 +1,80 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/title.gd" id="1"]
+
+[node name="Title" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.11, 0.16, 1)
+
+[node name="TitleLabel" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -280.0
+offset_top = 96.0
+offset_right = 280.0
+offset_bottom = 160.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 40
+text = "KofQMvp — Q版小队格斗"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -320.0
+offset_top = 168.0
+offset_right = 320.0
+offset_bottom = 208.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(0.75, 0.78, 0.85, 1)
+text = "原创角色 · 玩法对齐 3v3 小队格斗品类"
+horizontal_alignment = 1
+
+[node name="VBox" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -40.0
+offset_right = 120.0
+offset_bottom = 120.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+
+[node name="Versus" type="Button" parent="VBox"]
+layout_mode = 2
+text = "Versus（灰盒）"
+
+[node name="Training" type="Button" parent="VBox"]
+layout_mode = 2
+text = "Training（占位）"
+
+[node name="Arcade" type="Button" parent="VBox"]
+layout_mode = 2
+text = "Arcade（占位）"
+
+[connection signal="pressed" from="VBox/Versus" to="." method="_on_versus_pressed"]
+[connection signal="pressed" from="VBox/Training" to="." method="_on_training_pressed"]
+[connection signal="pressed" from="VBox/Arcade" to="." method="_on_arcade_pressed"]
