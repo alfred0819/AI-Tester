@@ -6,7 +6,7 @@
 |------|----------|------|
 | [`MobaMVP/`](MobaMVP/README.md) | `cursor/moba-mvp-unity-plan-bedd` | 原创局域网 MOBA（Unity） |
 | [`KofQMvp/`](KofQMvp/README.md) | `cursor/kof-q-mvp-plan-8211` | Q 版小队格斗（Godot 4） |
-| [`2dCameFGT/`](2dCameFGT/README.md) | `paseo/2dCameFGT` | 2dCameFGT |
+| [`GameByHTML/`](GameByHTML/README.md) | `paseo/2dCameFGT` | 浏览器端 2D 横版格斗（TypeScript + Phaser） |
 | [`bigmodel_learn/`](bigmodel_learn/) | `cursor/bigmodel-learn-doc-3185` | 大模型创造过程说明 |
 | [`hot-news/`](hot-news/) | `cursor/today-hot-news-skill-c49e` | 热点新闻输出目录 |
 | [`short-drama/`](short-drama/) | `cursor/short-drama-skill-c49e` | 短剧分镜输出目录 |
@@ -23,9 +23,9 @@
 - 工程：[`KofQMvp/README.md`](KofQMvp/README.md) — Godot 4.3+ 导入即可运行
 - 验收：[`docs/kof-q-mvp/acceptance-checklist.md`](docs/kof-q-mvp/acceptance-checklist.md)
 
-## 2dCameFGT
+## 2dCameFGT（GameByHTML）
 
-- [`2dCameFGT/README.md`](2dCameFGT/README.md)
+- 工程：[`GameByHTML/README.md`](GameByHTML/README.md)
 
 ## 对话归档
 
