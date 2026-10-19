@@ -26,3 +26,7 @@
 ## 2dCameFGT
 
 - [`2dCameFGT/README.md`](2dCameFGT/README.md)
+
+## 对话归档
+
+- [`docs/agent-archive.md`](docs/agent-archive.md) — 已合并分支对应 Cloud Agent 对话与删除记录
