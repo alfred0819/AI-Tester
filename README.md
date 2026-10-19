@@ -1,9 +1,8 @@
 # AI-Tester
 
-1.0.3 再测试一下。
+1.0.4。
 
 各功能分支合并进 `main` 后，按**独立目录**存放，互不覆盖。
-
 
 | 目录                                   | 来源分支                               | 说明                                         |
 | ------------------------------------ | ---------------------------------- | ------------------------------------------ |
@@ -15,7 +14,6 @@
 | `[short-drama/](short-drama/)`       | `cursor/short-drama-skill-c49e`    | 短剧分镜输出目录                                   |
 | `[.cursor/skills/](.cursor/skills/)` | 多 skill 分支                         | Agent Skills（today-hot-news、short-drama 等） |
 | `[docs/](docs/)`                     | moba / kof 规划分支                    | 分阶段规划与验收文档                                 |
-
 
 ## 原创 MOBA MVP（Unity）— Phase 0–6
 
