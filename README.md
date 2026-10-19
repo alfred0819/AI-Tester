@@ -1,8 +1,6 @@
 # AI-Tester
 
-
-1.0.1
-
+1.0.2 测试一下。
 
 各功能分支合并进 `main` 后，按**独立目录**存放，互不覆盖。
 
@@ -19,8 +17,6 @@
 | `[docs/](docs/)`                     | moba / kof 规划分支                    | 分阶段规划与验收文档                                 |
 
 
-
-
 ## 原创 MOBA MVP（Unity）— Phase 0–6
 
 > > > > > > > 7d6c3c77436c803ab63f17fe68c1fd7081a802d8
@@ -28,20 +24,14 @@
 - 工程：`[MobaMVP/README.md](MobaMVP/README.md)`
 - 验收：`[docs/moba-mvp/acceptance-checklist.md](docs/moba-mvp/acceptance-checklist.md)`
 
-
-
 ## 原创 Q 版格斗 MVP（Godot 4）— Phase 0–5
 
 - 工程：`[KofQMvp/README.md](KofQMvp/README.md)` — Godot 4.3+ 导入即可运行
 - 验收：`[docs/kof-q-mvp/acceptance-checklist.md](docs/kof-q-mvp/acceptance-checklist.md)`
 
-
-
 ## 2dCameFGT
 
 - `[2dCameFGT/README.md](2dCameFGT/README.md)`
-
-
 
 ## 对话归档
 
